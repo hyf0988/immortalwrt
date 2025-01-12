@@ -1,0 +1,40 @@
+name: Build ImmortalWrt Firmware
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '0 3 * * *'  # 每天凌晨 3 点自动编译
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+        with:
+          repository: immortalwrt/immortalwrt
+          ref: openwrt-21.02
+
+      - name: Setup feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure firmware
+        run: |
+          make defconfig
+          make menuconfig
+
+      - name: Build firmware
+        run: make -j$(nproc) V=s
+        
+      - name: Upload firmware
+        uses: actions/upload-artifact@v3
+        with:
+          name: firmware
+          path: bin/targets/x86/64/*
