@@ -1,12 +1,7 @@
 name: Build ImmortalWrt
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-  schedule:
-    - cron: '0 0 * * 5'  # 每周五UTC 00:00触发
+  workflow_dispatch:   # 只保留手动触发
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
