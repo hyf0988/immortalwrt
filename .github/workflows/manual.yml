@@ -14,20 +14,49 @@ env:
   IMMORTALWRT_VERSION: '23.05.3'
   REPO_URL: 'https://github.com/immortalwrt/immortalwrt'
   REPO_BRANCH: 'openwrt-23.05'
-  ROOTFS_PARTSIZE: '3072'
+  ROOTFS_PARTSIZE: '2072'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 清理磁盘空间
+      # 清理磁盘空间以释放更多可用空间
       - name: Maximize disk space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo apt-get clean
-          df -h  # 显示剩余空间
+          df -h
+
+      # 创建模拟磁盘并配置 LVM
+      - name: Create simulated physical disk and LVM
+        run: |
+          # 计算可用空间，预留一定余量
+          mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 1)
+          root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 4)
+          
+          # 确保大小有效
+          [ "$mnt_size" -lt 1 ] && mnt_size=1
+          [ "$root_size" -lt 1 ] && root_size=1
+          
+          # 创建模拟磁盘文件
+          sudo truncate -s "${mnt_size}G" /mnt/mnt.img
+          sudo truncate -s "${root_size}G" /root.img
+          
+          # 设置循环设备
+          sudo losetup /dev/loop6 /mnt/mnt.img || sudo losetup -f /mnt/mnt.img
+          sudo losetup /dev/loop7 /root.img || sudo losetup -f /root.img
+          
+          # 创建 LVM
+          sudo pvcreate /dev/loop6 /dev/loop7
+          sudo vgcreate github /dev/loop6 /dev/loop7
+          sudo lvcreate -n runner -l 100%FREE github
+          sudo mkfs.xfs /dev/github/runner
+          
+          # 挂载到 /builder
+          sudo mkdir -p /builder
+          sudo mount /dev/github/runner /builder
+          sudo chown -R $USER:$USER /builder
+          df -Th
 
       # 检出代码
       - name: Checkout
@@ -40,27 +69,24 @@ jobs:
           sudo apt-get install -y build-essential ccache curl file g++ gawk \
             git libncurses5-dev libssl-dev python3 unzip zlib1g-dev
 
-      # 下载 ImmortalWrt 源码
+      # 下载 ImmortalWrt 源码并切换到 /builder
       - name: Clone ImmortalWrt Source
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git clone --depth 1 -b ${{ env.REPO_BRANCH }} "https://${GITHUB_TOKEN}@github.com/immortalwrt/immortalwrt.git" immortalwrt
+          cd /builder
+          git clone --depth 1 -b ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} immortalwrt
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       # 动态配置并克隆额外软件包
       - name: Configure ImmortalWrt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd immortalwrt
-          git clone "https://${GITHUB_TOKEN}@github.com/vernesong/OpenClash.git" package/openclash || echo "Failed to clone OpenClash"
-          git clone "https://${GITHUB_TOKEN}@github.com/xiaorouji/openwrt-passwall.git" package/passwall || echo "Failed to clone Passwall"
-          git clone "https://${GITHUB_TOKEN}@github.com/immortalwrt/homeproxy.git" package/homeproxy || echo "Failed to clone Homeproxy"
-          git clone "https://${GITHUB_TOKEN}@github.com/lisaac/luci-app-dockerman.git" package/dockerman || echo "Failed to clone Dockerman"
-          git clone "https://${GITHUB_TOKEN}@github.com/kenzok8/luci-theme-argon.git" package/luci-theme-argon || echo "Failed to clone Argon theme"
+          cd /builder/immortalwrt
+          git clone https://github.com/vernesong/OpenClash.git package/openclash || echo "Failed to clone OpenClash"
+          git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall || echo "Failed to clone Passwall"
+          git clone https://github.com/immortalwrt/homeproxy.git package/homeproxy || echo "Failed to clone Homeproxy"
+          git clone https://github.com/lisaac/luci-app-dockerman.git package/dockerman || echo "Failed to clone Dockerman"
+          git clone https://github.com/kenzok8/luci-theme-argon.git package/luci-theme-argon || echo "Failed to clone Argon theme"
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -97,7 +123,7 @@ jobs:
       # 编译固件
       - name: Build Firmware
         run: |
-          cd immortalwrt
+          cd /builder/immortalwrt
           make -j$(nproc) V=s
 
       # 上传固件
@@ -105,4 +131,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-firmware-${{ github.event.inputs.target_device }}
-          path: immortalwrt/bin/targets/*/*/immortalwrt-*.bin
+          path: /builder/immortalwrt/bin/targets/*/*/immortalwrt-*.bin
