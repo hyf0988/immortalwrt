@@ -31,25 +31,29 @@ jobs:
           sudo apt-get install -y build-essential ccache curl file g++ gawk \
             git libncurses5-dev libssl-dev python3 unzip zlib1g-dev
 
-      # 下载 ImmortalWrt 源码
+      # 下载 ImmortalWrt 源码（使用 GitHub Token 认证）
       - name: Clone ImmortalWrt Source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git clone --depth 1 -b ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} immortalwrt
+          git clone --depth 1 -b ${{ env.REPO_BRANCH }} "https://${GITHUB_TOKEN}@github.com/immortalwrt/immortalwrt.git" immortalwrt
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 动态配置
+      # 动态配置并克隆额外软件包
       - name: Configure ImmortalWrt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd immortalwrt
 
-          # 添加所需的软件包
-          git clone https://github.com/vernesong/OpenClash.git package/openclash
-          git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall
-          git clone https://github.com/immortalwrt/homeproxy.git package/homeproxy
-          git clone https://github.com/lisaac/luci-app-dockerman.git package/dockerman
-          git clone https://github.com/kenzok8/luci-theme-argon.git package/luci-theme-argon
+          # 添加所需的软件包（使用 HTTPS 和 Token）
+          git clone "https://${GITHUB_TOKEN}@github.com/vernesong/OpenClash.git" package/openclash || echo "Failed to clone OpenClash, continuing..."
+          git clone "https://${GITHUB_TOKEN}@github.com/xiaorouji/openwrt-passwall.git" package/passwall || echo "Failed to clone Passwall, continuing..."
+          git clone "https://${GITHUB_TOKEN}@github.com/immortalwrt/homeproxy.git" package/homeproxy || echo "Failed to clone Homeproxy, continuing..."
+          git clone "https://${GITHUB_TOKEN}@github.com/lisaac/luci-app-dockerman.git" package/dockerman || echo "Failed to clone Dockerman, continuing..."
+          git clone "https://${GITHUB_TOKEN}@github.com/kenzok8/luci-theme-argon.git" package/luci-theme-argon || echo "Failed to clone Argon theme, continuing..."
 
           # 更新 feeds
           ./scripts/feeds update -a
