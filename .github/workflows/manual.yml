@@ -14,12 +14,21 @@ env:
   IMMORTALWRT_VERSION: '23.05.3'
   REPO_URL: 'https://github.com/immortalwrt/immortalwrt'
   REPO_BRANCH: 'openwrt-23.05'
-  ROOTFS_PARTSIZE: '3072'  # 3GB 软件包空间
+  ROOTFS_PARTSIZE: '3072'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # 清理磁盘空间
+      - name: Maximize disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo apt-get clean
+          df -h  # 显示剩余空间
+
       # 检出代码
       - name: Checkout
         uses: actions/checkout@v3
@@ -31,7 +40,7 @@ jobs:
           sudo apt-get install -y build-essential ccache curl file g++ gawk \
             git libncurses5-dev libssl-dev python3 unzip zlib1g-dev
 
-      # 下载 ImmortalWrt 源码（使用 GitHub Token 认证）
+      # 下载 ImmortalWrt 源码
       - name: Clone ImmortalWrt Source
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -47,69 +56,42 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd immortalwrt
-
-          # 添加所需的软件包（使用 HTTPS 和 Token）
-          git clone "https://${GITHUB_TOKEN}@github.com/vernesong/OpenClash.git" package/openclash || echo "Failed to clone OpenClash, continuing..."
-          git clone "https://${GITHUB_TOKEN}@github.com/xiaorouji/openwrt-passwall.git" package/passwall || echo "Failed to clone Passwall, continuing..."
-          git clone "https://${GITHUB_TOKEN}@github.com/immortalwrt/homeproxy.git" package/homeproxy || echo "Failed to clone Homeproxy, continuing..."
-          git clone "https://${GITHUB_TOKEN}@github.com/lisaac/luci-app-dockerman.git" package/dockerman || echo "Failed to clone Dockerman, continuing..."
-          git clone "https://${GITHUB_TOKEN}@github.com/kenzok8/luci-theme-argon.git" package/luci-theme-argon || echo "Failed to clone Argon theme, continuing..."
-
-          # 更新 feeds
+          git clone "https://${GITHUB_TOKEN}@github.com/vernesong/OpenClash.git" package/openclash || echo "Failed to clone OpenClash"
+          git clone "https://${GITHUB_TOKEN}@github.com/xiaorouji/openwrt-passwall.git" package/passwall || echo "Failed to clone Passwall"
+          git clone "https://${GITHUB_TOKEN}@github.com/immortalwrt/homeproxy.git" package/homeproxy || echo "Failed to clone Homeproxy"
+          git clone "https://${GITHUB_TOKEN}@github.com/lisaac/luci-app-dockerman.git" package/dockerman || echo "Failed to clone Dockerman"
+          git clone "https://${GITHUB_TOKEN}@github.com/kenzok8/luci-theme-argon.git" package/luci-theme-argon || echo "Failed to clone Argon theme"
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
           # 动态写入配置
           cat << EOF >> .config
-          # Target (默认 x86_64，可通过输入参数调整)
           CONFIG_TARGET_${{ github.event.inputs.target_device }}=y
           CONFIG_TARGET_${{ github.event.inputs.target_device }}_Generic=y
-
-          # LuCI 和基本功能
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-app-firewall=y
           CONFIG_PACKAGE_luci-app-opkg=y
-
-          # OpenClash
           CONFIG_PACKAGE_luci-app-openclash=y
-
-          # Passwall
           CONFIG_PACKAGE_luci-app-passwall=y
           CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks=y
           CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=y
-
-          # Homeproxy
           CONFIG_PACKAGE_luci-app-homeproxy=y
-
-          # Dockerman 和 Docker
           CONFIG_PACKAGE_luci-app-dockerman=y
           CONFIG_PACKAGE_docker=y
           CONFIG_PACKAGE_dockerd=y
-
-          # 2.5G 网卡驱动
           CONFIG_PACKAGE_kmod-r8169=y
           CONFIG_PACKAGE_kmod-usb-net=y
           CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
-
-          # SFTP
           CONFIG_PACKAGE_openssh-sftp-server=y
-
-          # Argo 主题
           CONFIG_PACKAGE_luci-theme-argon=y
           CONFIG_LUCI_THEME_DEFAULT="argon"
-
-          # 3GB 软件包空间
           CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.ROOTFS_PARTSIZE }}
           CONFIG_TARGET_ROOTFS_EXT4FS=y
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
-
-          # 编译优化
           CONFIG_CCACHE=y
           CONFIG_V=s
           CONFIG_TARGET_IMAGES_GZIP=y
           EOF
-
-          # 生成最终配置
           make defconfig
 
       # 编译固件
