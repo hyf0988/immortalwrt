@@ -14,12 +14,13 @@ env:
   IMMORTALWRT_VERSION: '23.05.3'
   REPO_URL: 'https://github.com/immortalwrt/immortalwrt'
   REPO_BRANCH: 'openwrt-23.05'
+  ROOTFS_PARTSIZE: '3072'  # 3GB 软件包空间
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 检出代码（包括你的 .config 文件）
+      # 检出代码
       - name: Checkout
         uses: actions/checkout@v3
 
@@ -38,25 +39,73 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 应用预设 .config 文件并添加额外软件包
-      - name: Apply custom configuration
+      # 动态配置
+      - name: Configure ImmortalWrt
         run: |
           cd immortalwrt
-          # 将仓库中的 .config 复制到源码目录
-          cp ../.config .config
 
-          # 添加所需的软件包（确保 feeds 中可用）
+          # 添加所需的软件包
           git clone https://github.com/vernesong/OpenClash.git package/openclash
           git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall
           git clone https://github.com/immortalwrt/homeproxy.git package/homeproxy
           git clone https://github.com/lisaac/luci-app-dockerman.git package/dockerman
           git clone https://github.com/kenzok8/luci-theme-argon.git package/luci-theme-argon
 
-          # 更新 feeds 并安装
+          # 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 确保配置生效
+          # 动态写入配置
+          cat << EOF >> .config
+          # Target (默认 x86_64，可通过输入参数调整)
+          CONFIG_TARGET_${{ github.event.inputs.target_device }}=y
+          CONFIG_TARGET_${{ github.event.inputs.target_device }}_Generic=y
+
+          # LuCI 和基本功能
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-app-firewall=y
+          CONFIG_PACKAGE_luci-app-opkg=y
+
+          # OpenClash
+          CONFIG_PACKAGE_luci-app-openclash=y
+
+          # Passwall
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=y
+
+          # Homeproxy
+          CONFIG_PACKAGE_luci-app-homeproxy=y
+
+          # Dockerman 和 Docker
+          CONFIG_PACKAGE_luci-app-dockerman=y
+          CONFIG_PACKAGE_docker=y
+          CONFIG_PACKAGE_dockerd=y
+
+          # 2.5G 网卡驱动
+          CONFIG_PACKAGE_kmod-r8169=y
+          CONFIG_PACKAGE_kmod-usb-net=y
+          CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
+
+          # SFTP
+          CONFIG_PACKAGE_openssh-sftp-server=y
+
+          # Argo 主题
+          CONFIG_PACKAGE_luci-theme-argon=y
+          CONFIG_LUCI_THEME_DEFAULT="argon"
+
+          # 3GB 软件包空间
+          CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.ROOTFS_PARTSIZE }}
+          CONFIG_TARGET_ROOTFS_EXT4FS=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+
+          # 编译优化
+          CONFIG_CCACHE=y
+          CONFIG_V=s
+          CONFIG_TARGET_IMAGES_GZIP=y
+          EOF
+
+          # 生成最终配置
           make defconfig
 
       # 编译固件
@@ -65,7 +114,7 @@ jobs:
           cd immortalwrt
           make -j$(nproc) V=s
 
-      # 上传固件（使用 v4 版本）
+      # 上传固件
       - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
