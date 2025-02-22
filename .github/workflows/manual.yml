@@ -2,7 +2,6 @@
 
 name: Build ImmortalWrt 23.05.3 with Custom Packages
 
-# 手动触发工作流
 on:
   workflow_dispatch:
     inputs:
@@ -15,13 +14,12 @@ env:
   IMMORTALWRT_VERSION: '23.05.3'
   REPO_URL: 'https://github.com/immortalwrt/immortalwrt'
   REPO_BRANCH: 'openwrt-23.05'
-  ROOTFS_PARTSIZE: '3072'  # 设置软件包空间为 3GB (单位：MB)
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 检出代码
+      # 检出代码（包括你的 .config 文件）
       - name: Checkout
         uses: actions/checkout@v3
 
@@ -40,35 +38,25 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 自定义配置
-      - name: Customize configuration
+      # 应用预设 .config 文件并添加额外软件包
+      - name: Apply custom configuration
         run: |
           cd immortalwrt
-          # 下载并添加所需软件包
+          # 将仓库中的 .config 复制到源码目录
+          cp ../.config .config
+
+          # 添加所需的软件包（确保 feeds 中可用）
           git clone https://github.com/vernesong/OpenClash.git package/openclash
           git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall
           git clone https://github.com/immortalwrt/homeproxy.git package/homeproxy
           git clone https://github.com/lisaac/luci-app-dockerman.git package/dockerman
-          
-          # 添加 2.5G 网卡驱动支持（以 Realtek RTL8125 为例）
-          echo "CONFIG_PACKAGE_kmod-r8169=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-usb-net-rtl8152=y" >> .config
-
-          # 添加 SFTP 支持
-          echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> .config
-
-          # 添加 Argo 主题
           git clone https://github.com/kenzok8/luci-theme-argon.git package/luci-theme-argon
 
-          # 设置默认软件包空间大小 (通过修改根文件系统分区大小)
-          sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.ROOTFS_PARTSIZE }}/' .config
+          # 更新 feeds 并安装
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-          # 启用 Docker 支持
-          echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
-          echo "CONFIG_PACKAGE_docker=y" >> .config
-          echo "CONFIG_PACKAGE_dockerd=y" >> .config
-
-          # 生成默认配置
+          # 确保配置生效
           make defconfig
 
       # 编译固件
@@ -77,9 +65,9 @@ jobs:
           cd immortalwrt
           make -j$(nproc) V=s
 
-      # 上传固件
+      # 上传固件（使用 v4 版本）
       - name: Upload Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-firmware-${{ github.event.inputs.target_device }}
           path: immortalwrt/bin/targets/*/*/immortalwrt-*.bin
