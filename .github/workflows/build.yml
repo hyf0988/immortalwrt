@@ -23,71 +23,29 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-        bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib \
-        git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev \
-        libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz \
-        mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-distutils \
-        python3-pip qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip \
-        vim wget xmlto xxd zlib1g-dev lvm2 xfsprogs
+        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-23.05/scripts/buildsystem/dependencies-ubuntu-2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Setup Extended Storage
-      run: |
-        set -e  # Exit on any error
-        
-        echo "Setting up extended storage..."
-        
-        # Calculate available space
-        mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 1)
-        root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 4)
-        
-        # Create disk images
-        sudo truncate -s "${mnt_size}G" /mnt/mnt.img
-        sudo truncate -s "${root_size}G" /root.img
-        
-        # Setup loop devices
-        sudo losetup -d /dev/loop6 2>/dev/null || true
-        sudo losetup -d /dev/loop7 2>/dev/null || true
-        sudo losetup /dev/loop6 /mnt/mnt.img
-        sudo losetup /dev/loop7 /root.img
-        
-        # Create LVM structure
-        sudo pvcreate /dev/loop6
-        sudo pvcreate /dev/loop7
-        sudo vgcreate github /dev/loop6 /dev/loop7
-        sudo lvcreate -n runner -l 100%FREE github
-        
-        # Create and mount filesystem
-        sudo mkfs.xfs /dev/github/runner
-        sudo mkdir -p /builder
-        sudo mount /dev/github/runner /builder
-        sudo chown -R runner:runner /builder
-        
-        echo "Extended storage setup complete"
-        df -Th
-
     - name: Clone Source Code
       run: |
-        git clone $REPO_URL -b $REPO_BRANCH /builder/openwrt
-        cd /builder/openwrt
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        cd openwrt
         git checkout $REPO_VERSION
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Generate Config File
       run: |
-        cd /builder/openwrt
+        cd openwrt
         cat > .config <<EOF
         CONFIG_TARGET_x86=y
         CONFIG_TARGET_x86_64=y
         CONFIG_TARGET_x86_64_DEVICE_generic=y
         CONFIG_PACKAGE_luci=y
         CONFIG_PACKAGE_luci-app-dockerman=y
-        CONFIG_PACKAGE_luci-lib-docker=y
-        CONFIG_PACKAGE_docker-compose=y
+        CONFIG_PACKAGE_luci-app-docker=y
         CONFIG_PACKAGE_luci-app-openclash=y
         CONFIG_PACKAGE_luci-app-homeproxy=y
         CONFIG_TARGET_KERNEL_PARTSIZE=32
@@ -104,35 +62,28 @@ jobs:
         CONFIG_KERNEL_NET_CLS_CGROUP=y
         EOF
 
-    - name: Load Configuration
-      run: |
-        cd /builder/openwrt
-        make defconfig
-
     - name: Download Package
       run: |
-        cd /builder/openwrt
+        cd openwrt
+        make defconfig
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile Firmware
       run: |
-        cd /builder/openwrt
-        export FORCE_UNSAFE_CONFIGURE=1
+        cd openwrt
         make -j$(nproc) || make -j1 V=s
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@main
       with:
         name: immortalwrt-23.05.3-firmware
-        path: /builder/openwrt/bin/targets/
+        path: openwrt/bin/targets/
 
     - name: Generate Release Tag
       id: tag
       run: |
-        echo "release_tag=23.05.3-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
+        echo "::set-output name=release_tag::23.05.3-$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_date::$(date +"%Y.%m.%d")"
         
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -141,24 +92,6 @@ jobs:
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         name: ImmortalWrt_23.05.3_${{ steps.tag.outputs.release_date }}
-        files: /builder/openwrt/bin/targets/*/*/*
+        files: openwrt/bin/targets/*/*/*
         draft: false
         prerelease: false
-
-    - name: Post-build Cleanup
-      if: always()
-      run: |
-        cd /builder/openwrt
-        rm -rf build_dir
-        rm -rf staging_dir
-        rm -rf tmp
-        
-        echo "Cleaning up extended storage..."
-        cd /
-        sudo umount /builder || true
-        sudo lvremove -f github/runner || true
-        sudo vgremove -f github || true
-        sudo losetup -d /dev/loop6 || true
-        sudo losetup -d /dev/loop7 || true
-        sudo rm -f /mnt/mnt.img /root.img || true
-        df -h
