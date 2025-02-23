@@ -24,14 +24,50 @@ jobs:
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-23.05/scripts/buildsystem/dependencies-ubuntu-2204)
+        sudo -E apt-get -qq install lvm2 xfsprogs
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
 
+    - name: Setup Extended Storage
+      run: |
+        set -e  # Exit on any error
+        
+        echo "Setting up extended storage..."
+        
+        # Calculate available space
+        mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 1)
+        root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 4)
+        
+        # Create disk images
+        sudo truncate -s "${mnt_size}G" /mnt/mnt.img
+        sudo truncate -s "${root_size}G" /root.img
+        
+        # Setup loop devices
+        sudo losetup -d /dev/loop6 2>/dev/null || true
+        sudo losetup -d /dev/loop7 2>/dev/null || true
+        sudo losetup /dev/loop6 /mnt/mnt.img
+        sudo losetup /dev/loop7 /root.img
+        
+        # Create LVM structure
+        sudo pvcreate /dev/loop6
+        sudo pvcreate /dev/loop7
+        sudo vgcreate github /dev/loop6 /dev/loop7
+        sudo lvcreate -n runner -l 100%FREE github
+        
+        # Create and mount filesystem
+        sudo mkfs.xfs /dev/github/runner
+        sudo mkdir -p /builder
+        sudo mount /dev/github/runner /builder
+        sudo chown -R runner:runner /builder
+        
+        echo "Extended storage setup complete"
+        df -Th
+
     - name: Clone Source Code
       run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        cd openwrt
+        git clone $REPO_URL -b $REPO_BRANCH /builder/openwrt
+        cd /builder/openwrt
         git checkout $REPO_VERSION
         ./scripts/feeds update -a
         ./scripts/feeds install -a
@@ -44,14 +80,14 @@ jobs:
         sudo rm -rf "$AGENT_TOOLSDIRECTORY"
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
-        cd openwrt
+        cd /builder/openwrt
         make clean
         rm -rf tmp/
         df -h
 
     - name: Generate Config File
       run: |
-        cd openwrt
+        cd /builder/openwrt
         cat > .config <<EOF
         CONFIG_TARGET_x86=y
         CONFIG_TARGET_x86_64=y
@@ -63,7 +99,7 @@ jobs:
         CONFIG_PACKAGE_luci-app-openclash=y
         CONFIG_PACKAGE_luci-app-homeproxy=y
         CONFIG_TARGET_KERNEL_PARTSIZE=32
-        CONFIG_TARGET_ROOTFS_PARTSIZE=2048
+        CONFIG_TARGET_ROOTFS_PARTSIZE=3072
         CONFIG_DOCKER_CGROUP_OPTIONS=y
         CONFIG_DOCKER_NET_MACVLAN=y
         CONFIG_DOCKER_STO_EXT4=y
@@ -78,20 +114,20 @@ jobs:
 
     - name: Download Package
       run: |
-        cd openwrt
+        cd /builder/openwrt
         make defconfig
         make download -j8
 
     - name: Compile Firmware
       run: |
-        cd openwrt
+        cd /builder/openwrt
         make -j$(nproc) || make -j1 V=s
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@main
       with:
         name: immortalwrt-23.05.3-firmware
-        path: openwrt/bin/targets/
+        path: /builder/openwrt/bin/targets/
 
     - name: Generate Release Tag
       id: tag
@@ -106,15 +142,24 @@ jobs:
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         name: ImmortalWrt_23.05.3_${{ steps.tag.outputs.release_date }}
-        files: openwrt/bin/targets/*/*/*
+        files: /builder/openwrt/bin/targets/*/*/*
         draft: false
         prerelease: false
 
     - name: Post-build Cleanup
       if: always()
       run: |
-        cd openwrt
+        cd /builder/openwrt
         rm -rf build_dir
         rm -rf staging_dir
         rm -rf tmp
+        
+        echo "Cleaning up extended storage..."
+        cd /
+        sudo umount /builder || true
+        sudo lvremove -f github/runner || true
+        sudo vgremove -f github || true
+        sudo losetup -d /dev/loop6 || true
+        sudo losetup -d /dev/loop7 || true
+        sudo rm -f /mnt/mnt.img /root.img || true
         df -h
