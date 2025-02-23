@@ -9,13 +9,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=arm-trusted-firmware-mediatek
-PKG_RELEASE:=3
+PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=https://github.com/mtk-openwrt/arm-trusted-firmware.git
-PKG_SOURCE_DATE:=2024-01-17
-PKG_SOURCE_VERSION:=bacca82a8cac369470df052a9d801a0ceb9b74ca
-PKG_MIRROR_HASH:=1138649f64ac3982330925c38c795ca6860289adbd95755991f80afa30ebdea7
+PKG_SOURCE_DATE:=2025-02-12
+PKG_SOURCE_VERSION:=e090770684e775711a624e68e0b28112227a4c38
+PKG_MIRROR_HASH:=1ff9d60f3677aadd9a6716e860985987ba7157bd28ce831112e05c0b3170939a
 
 PKG_MAINTAINER:=Daniel Golle <daniel@makrotopia.org>
 
@@ -35,6 +35,8 @@ define Trusted-Firmware-A/Default
   DRAM_USE_COMB:=
   RAM_BOOT_UART_DL:=
   USE_UBI:=
+  FIP_OFFSET:=
+  FIP_SIZE:=
 endef
 
 define Trusted-Firmware-A/mt7622-nor-1ddr
@@ -219,6 +221,16 @@ define Trusted-Firmware-A/mt7981-spim-nand-ddr3
   BUILD_SUBTARGET:=filogic
   PLAT:=mt7981
   DDR_TYPE:=ddr3
+endef
+
+define Trusted-Firmware-A/mt7981-cudy-tr3000-v1
+  NAME:=Cudy TR3000 v1 (SPI-NAND via SPIM, DDR3)
+  BOOT_DEVICE:=spim-nand
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7981
+  DDR_TYPE:=ddr3
+  FIP_OFFSET:=0x3c0000
+  FIP_SIZE:=0x200000
 endef
 
 define Trusted-Firmware-A/mt7986-ram-ddr4
@@ -534,6 +546,7 @@ TFA_TARGETS:= \
 	mt7981-ram-ddr4 \
 	mt7981-emmc-ddr4 \
 	mt7981-spim-nand-ddr4 \
+	mt7981-cudy-tr3000-v1 \
 	mt7986-ram-ddr3 \
 	mt7986-emmc-ddr3 \
 	mt7986-nor-ddr3 \
@@ -569,7 +582,6 @@ TFA_TARGETS:= \
 	mt7988-spim-nand-ubi-comb
 
 TFA_MAKE_FLAGS += \
-	$(if $(CONFIG_BINUTILS_VERSION_2_37)$(CONFIG_BINUTILS_VERSION_2_38),,LDFLAGS="-no-warn-rwx-segments") \
 	BOOT_DEVICE=$(BOOT_DEVICE) \
 	USE_MKIMAGE=1 MKIMAGE=$(STAGING_DIR_HOST)/bin/mkimage \
 	$(if $(findstring ddr4,$(DDR_TYPE)),DRAM_USE_DDR4=1) \
@@ -582,6 +594,8 @@ TFA_MAKE_FLAGS += \
 	$(if $(USE_UBI),UBI=1 $(if $(findstring mt7622,$(PLAT)),OVERRIDE_UBI_START_ADDR=0x80000)) \
 	$(if $(USE_UBI),UBI=1 $(if $(findstring mt7981,$(PLAT)),OVERRIDE_UBI_START_ADDR=0x100000)) \
 	$(if $(USE_UBI),UBI=1 $(if $(findstring mt7986,$(PLAT)),OVERRIDE_UBI_START_ADDR=0x200000)) \
+	$(if $(FIP_OFFSET),OVERRIDE_FIP_BASE=$(FIP_OFFSET)) \
+	$(if $(FIP_SIZE),OVERRIDE_FIP_SIZE=$(FIP_SIZE)) \
 	$(if $(RAM_BOOT_UART_DL),bl2,all)
 
 define Package/trusted-firmware-a-ram/install
