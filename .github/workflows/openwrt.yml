@@ -63,12 +63,20 @@ jobs:
       - name: Configure OpenWrt
         run: |
           cd /builder/openwrt
+          
           # 克隆第三方软件包
-          git clone https://github.com/vernesong/OpenClash.git package/openclash
-          git clone -b openwrt-23.05 https://github.com/xiaorouji/openwrt-passwall.git package/passwall
-          git clone -b main https://github.com/immortalwrt/homeproxy.git package/homeproxy
-          git clone https://github.com/lisaac/luci-app-dockerman.git package/dockerman
-          git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+          git clone https://github.com/vernesong/OpenClash.git package/openclash || echo "Failed to clone OpenClash"
+          
+          # 克隆 PassWall 相关仓库
+          mkdir -p package/passwall
+          git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall/passwall || echo "Failed to clone PassWall"
+          git clone https://github.com/xiaorouji/openwrt-passwall2.git package/passwall/passwall2 || echo "Failed to clone PassWall2"
+          git clone -b packages https://github.com/xiaorouji/openwrt-passwall.git package/passwall/packages || echo "Failed to clone PassWall packages"
+          
+          # 克隆其他软件包
+          git clone -b main https://github.com/immortalwrt/homeproxy.git package/homeproxy || echo "Failed to clone HomeProxy"
+          git clone https://github.com/lisaac/luci-app-dockerman.git package/dockerman || echo "Failed to clone Dockerman"
+          git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon || echo "Failed to clone Argon theme"
 
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -82,6 +90,7 @@ jobs:
           CONFIG_PACKAGE_luci-app-opkg=y
           CONFIG_PACKAGE_luci-app-openclash=y
           CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-app-passwall2=y
           CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks=y
           CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=y
           CONFIG_PACKAGE_luci-app-homeproxy=y
