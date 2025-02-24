@@ -1,0 +1,118 @@
+name: Build OpenWrt 23.05.2 with Custom Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_device:
+        description: 'Target device (e.g., x86_64, rpi-4)'
+        required: true
+        default: 'x86_64'
+
+env:
+  OPENWRT_VERSION: '23.05.2'
+  REPO_URL: 'https://github.com/openwrt/openwrt'
+  REPO_BRANCH: 'openwrt-23.05'
+  ROOTFS_PARTSIZE: '3072'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+          df -h
+
+      - name: Create simulated physical disk and LVM
+        run: |
+          mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 1)
+          root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 4)
+          [ "$mnt_size" -lt 1 ] && mnt_size=1
+          [ "$root_size" -lt 1 ] && root_size=1
+          sudo truncate -s "${mnt_size}G" /mnt/mnt.img
+          sudo truncate -s "${root_size}G" /root.img
+          sudo losetup /dev/loop6 /mnt/mnt.img || sudo losetup -f /mnt/mnt.img
+          sudo losetup /dev/loop7 /root.img || sudo losetup -f /root.img
+          sudo pvcreate /dev/loop6 /dev/loop7
+          sudo vgcreate github /dev/loop6 /dev/loop7
+          sudo lvcreate -n runner -l 100%FREE github
+          sudo mkfs.xfs /dev/github/runner
+          sudo mkdir -p /builder
+          sudo mount /dev/github/runner /builder
+          sudo chown -R $USER:$USER /builder
+          df -Th
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache curl file g++ gawk \
+            git libncurses5-dev libssl-dev python3 unzip zlib1g-dev
+
+      - name: Clone OpenWrt Source
+        run: |
+          cd /builder
+          git clone --depth 1 -b ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} openwrt
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure OpenWrt
+        run: |
+          cd /builder/openwrt
+          # 克隆第三方软件包
+          git clone https://github.com/vernesong/OpenClash.git package/openclash
+          git clone -b openwrt-23.05 https://github.com/xiaorouji/openwrt-passwall.git package/passwall
+          git clone -b main https://github.com/immortalwrt/homeproxy.git package/homeproxy
+          git clone https://github.com/lisaac/luci-app-dockerman.git package/dockerman
+          git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+          # 生成配置
+          cat << EOF > .config
+          CONFIG_TARGET_${{ github.event.inputs.target_device }}=y
+          CONFIG_TARGET_${{ github.event.inputs.target_device }}_Generic=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-app-firewall=y
+          CONFIG_PACKAGE_luci-app-opkg=y
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=y
+          CONFIG_PACKAGE_luci-app-homeproxy=y
+          CONFIG_PACKAGE_luci-app-dockerman=y
+          CONFIG_PACKAGE_docker=y
+          CONFIG_PACKAGE_dockerd=y
+          CONFIG_PACKAGE_kmod-r8169=y
+          CONFIG_PACKAGE_kmod-usb-net=y
+          CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
+          CONFIG_PACKAGE_openssh-sftp-server=y
+          CONFIG_PACKAGE_luci-theme-argon=y
+          CONFIG_LUCI_THEME_DEFAULT="argon"
+          CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.ROOTFS_PARTSIZE }}
+          CONFIG_TARGET_ROOTFS_EXT4FS=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          CONFIG_TARGET_INITRAMFS=y
+          CONFIG_TARGET_INITRAMFS_COMPRESSION_GZIP=y
+          CONFIG_TARGET_IMAGES_GZIP=y
+          CONFIG_CCACHE=y
+          CONFIG_V=s
+          EOF
+          make defconfig
+
+      - name: Build Firmware
+        run: |
+          cd /builder/openwrt
+          make -j$(nproc) V=s || make -j1 V=s
+          ls -lh bin/targets/*/*/
+
+      - name: Upload Firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-firmware-${{ github.event.inputs.target_device }}
+          path: /builder/openwrt/bin/targets/*/*/openwrt-*.*
