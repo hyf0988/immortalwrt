@@ -50,12 +50,10 @@ jobs:
           git clone https://github.com/vernesong/OpenClash.git package/openclash
           if [ $? -ne 0 ]; then echo "Failed to clone OpenClash"; exit 1; fi
           
-          # Clone PassWall and dependencies
+          # Clone PassWall
           mkdir -p package/passwall
-          git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall/luci-app-passwall
+          git clone -b main https://github.com/xiaorouji/openwrt-passwall.git package/passwall/luci-app-passwall
           if [ $? -ne 0 ]; then echo "Failed to clone PassWall"; exit 1; fi
-          git clone -b packages https://github.com/xiaorouji/openwrt-passwall.git package/passwall/packages
-          if [ $? -ne 0 ]; then echo "Failed to clone PassWall packages"; exit 1; fi
           
           # Clone Argon theme
           git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
@@ -89,76 +87,4 @@ jobs:
           
           # Network drivers
           CONFIG_PACKAGE_kmod-r8169=y
-          CONFIG_PACKAGE_kmod-usb-net=y
-          CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
-          
-          # Other packages
-          CONFIG_PACKAGE_openssh-sftp-server=y
-          CONFIG_PACKAGE_luci-theme-argon=y
-          CONFIG_LUCI_LANG_zh_Hans=y
-          
-          # System configuration
-          CONFIG_LUCI_THEME_DEFAULT="argon"
-          CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.ROOTFS_PARTSIZE }}
-          CONFIG_TARGET_ROOTFS_EXT4FS=y
-          CONFIG_TARGET_ROOTFS_SQUASHFS=y
-          CONFIG_CCACHE=y
-          
-          # Lean configuration
-          CONFIG_KERNEL_KALLSYMS=n
-          CONFIG_KERNEL_DEBUG_INFO=n
-          CONFIG_KERNEL_DEBUG_KERNEL=n
-          CONFIG_KERNEL_SWAP=n
-          EOF
-          
-          make defconfig
-
-      - name: Download package source
-        run: |
-          cd openwrt
-          make download -j8 || make download -j1 V=s
-
-      - name: Build Firmware (Memory-Safe Mode)
-        run: |
-          cd openwrt
-          
-          echo "::group::Building toolchain"
-          make tools/install -j${{ github.event.inputs.make_threads }} || { echo "Toolchain build failed"; exit 1; }
-          make toolchain/install -j${{ github.event.inputs.make_threads }} || { echo "Toolchain install failed"; exit 1; }
-          echo "::endgroup::"
-          
-          echo "::group::Building target"
-          make target/compile -j${{ github.event.inputs.make_threads }} || make target/compile -j1 V=s
-          if [ $? -ne 0 ]; then echo "Target compilation failed"; exit 1; fi
-          echo "::endgroup::"
-          
-          echo "::group::Building packages"
-          make package/compile -j${{ github.event.inputs.make_threads }} || make package/compile -j1 V=s
-          if [ $? -ne 0 ]; then echo "Package compilation failed"; exit 1; fi
-          echo "::endgroup::"
-          
-          echo "::group::Installing packages"
-          make package/install -j${{ github.event.inputs.make_threads }} || make package/install -j1
-          if [ $? -ne 0 ]; then echo "Package installation failed"; exit 1; fi
-          echo "::endgroup::"
-          
-          echo "::group::Building firmware"
-          make target/install -j${{ github.event.inputs.make_threads }} || make target/install -j1
-          if [ $? -ne 0 ]; then echo "Firmware build failed"; exit 1; fi
-          make package/index
-          echo "::endgroup::"
-          
-          echo "=== Generated Firmware Files ==="
-          ls -lh bin/targets/x86/64/
-
-      - name: Upload Firmware
-        uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-firmware-x86_64
-          path: openwrt/bin/targets/x86/64/openwrt-*.{img.gz,bin}
-
-      - name: Upload Config
-        uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-config-x86_64
-          path: openwrt/.config
+          CONFIG
