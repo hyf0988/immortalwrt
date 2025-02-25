@@ -1,12 +1,8 @@
-name: Build OpenWrt 23.05.2 with Custom Packages
+name: Build OpenWrt 23.05.2 with Custom Packages for x86_64
 
 on:
   workflow_dispatch:
     inputs:
-      target_device:
-        description: 'Target device (e.g., x86_64, rpi-4)'
-        required: true
-        default: 'x86_64'
       make_threads:
         description: 'Threads for compilation (1-4, smaller is more stable)'
         required: true
@@ -17,6 +13,7 @@ env:
   REPO_URL: 'https://github.com/openwrt/openwrt'
   REPO_BRANCH: 'openwrt-23.05'
   ROOTFS_PARTSIZE: '2048'
+  TARGET_DEVICE: 'x86_64'
 
 jobs:
   build:
@@ -29,7 +26,7 @@ jobs:
           sudo swapoff -a
           sudo rm -f /swapfile
           df -h
-      
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -41,11 +38,7 @@ jobs:
         run: |
           git clone --depth 1 -b ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} openwrt
           cd openwrt
-          
-          # 启用并行下载以加速
           echo "CONFIG_DOWNLOAD_FOLDER=\"$(pwd)/dl\"" > .config
-          
-          # 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -53,31 +46,36 @@ jobs:
         run: |
           cd openwrt
           
-          # 克隆 OpenClash
-          git clone https://github.com/vernesong/OpenClash.git package/openclash || echo "Failed to clone OpenClash"
+          # Clone OpenClash
+          git clone https://github.com/vernesong/OpenClash.git package/openclash
+          if [ $? -ne 0 ]; then echo "Failed to clone OpenClash"; exit 1; fi
           
-          # 克隆 PassWall 及其依赖
+          # Clone PassWall and dependencies
           mkdir -p package/passwall
-          git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall/luci-app-passwall || echo "Failed to clone PassWall"
-          git clone -b packages https://github.com/xiaorouji/openwrt-passwall.git package/passwall/packages || echo "Failed to clone PassWall packages"
+          git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall/luci-app-passwall
+          if [ $? -ne 0 ]; then echo "Failed to clone PassWall"; exit 1; fi
+          git clone -b packages https://github.com/xiaorouji/openwrt-passwall.git package/passwall/packages
+          if [ $? -ne 0 ]; then echo "Failed to clone PassWall packages"; exit 1; fi
           
-          # 克隆 Argon 主题
-          git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon || echo "Failed to clone Argon theme"
+          # Clone Argon theme
+          git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+          if [ $? -ne 0 ]; then echo "Failed to clone Argon theme"; exit 1; fi
 
-          # 更新 feeds 以包含新添加的包
+          # Update feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 生成精简的配置
+          # Generate configuration for x86_64
           cat << EOF > .config
-          CONFIG_TARGET_${{ github.event.inputs.target_device }}=y
-          CONFIG_TARGET_${{ github.event.inputs.target_device }}_Generic=y
+          CONFIG_TARGET_x86=y
+          CONFIG_TARGET_x86_64=y
+          CONFIG_TARGET_x86_64_Generic=y
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-app-firewall=y
           CONFIG_PACKAGE_luci-app-opkg=y
           CONFIG_PACKAGE_luci-app-openclash=y
           
-          # PassWall 及其依赖
+          # PassWall and dependencies
           CONFIG_PACKAGE_luci-app-passwall=y
           CONFIG_PACKAGE_chinadns-ng=y
           CONFIG_PACKAGE_dns2socks=y
@@ -89,78 +87,78 @@ jobs:
           CONFIG_PACKAGE_shadowsocks-libev-ss-local=y
           CONFIG_PACKAGE_shadowsocks-libev-ss-redir=y
           
-          # 网络驱动
+          # Network drivers
           CONFIG_PACKAGE_kmod-r8169=y
           CONFIG_PACKAGE_kmod-usb-net=y
           CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
           
-          # 其他软件包
+          # Other packages
           CONFIG_PACKAGE_openssh-sftp-server=y
           CONFIG_PACKAGE_luci-theme-argon=y
           CONFIG_LUCI_LANG_zh_Hans=y
           
-          # 系统配置
+          # System configuration
           CONFIG_LUCI_THEME_DEFAULT="argon"
           CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.ROOTFS_PARTSIZE }}
           CONFIG_TARGET_ROOTFS_EXT4FS=y
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
           CONFIG_CCACHE=y
           
-          # 精简配置
+          # Lean configuration
           CONFIG_KERNEL_KALLSYMS=n
           CONFIG_KERNEL_DEBUG_INFO=n
           CONFIG_KERNEL_DEBUG_KERNEL=n
           CONFIG_KERNEL_SWAP=n
           EOF
           
-          # 应用配置
           make defconfig
 
       - name: Download package source
         run: |
           cd openwrt
-          make download -j8
-          make download -j1 V=s
+          make download -j8 || make download -j1 V=s
 
       - name: Build Firmware (Memory-Safe Mode)
         run: |
           cd openwrt
           
-          # 分阶段编译
           echo "::group::Building toolchain"
-          make tools/install -j${{ github.event.inputs.make_threads }}
-          make toolchain/install -j${{ github.event.inputs.make_threads }}
+          make tools/install -j${{ github.event.inputs.make_threads }} || { echo "Toolchain build failed"; exit 1; }
+          make toolchain/install -j${{ github.event.inputs.make_threads }} || { echo "Toolchain install failed"; exit 1; }
           echo "::endgroup::"
           
           echo "::group::Building target"
           make target/compile -j${{ github.event.inputs.make_threads }} || make target/compile -j1 V=s
+          if [ $? -ne 0 ]; then echo "Target compilation failed"; exit 1; fi
           echo "::endgroup::"
           
           echo "::group::Building packages"
           make package/compile -j${{ github.event.inputs.make_threads }} || make package/compile -j1 V=s
+          if [ $? -ne 0 ]; then echo "Package compilation failed"; exit 1; fi
           echo "::endgroup::"
           
           echo "::group::Installing packages"
           make package/install -j${{ github.event.inputs.make_threads }} || make package/install -j1
+          if [ $? -ne 0 ]; then echo "Package installation failed"; exit 1; fi
           echo "::endgroup::"
           
           echo "::group::Building firmware"
           make target/install -j${{ github.event.inputs.make_threads }} || make target/install -j1
+          if [ $? -ne 0 ]; then echo "Firmware build failed"; exit 1; fi
           make package/index
           echo "::endgroup::"
           
-          # 显示生成的固件文件
           echo "=== Generated Firmware Files ==="
-          ls -lh bin/targets/*/*/
+          ls -lh bin/targets/x86/64/
 
       - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-firmware-${{ github.event.inputs.target_device }}
-          path: openwrt/bin/targets/*/*/openwrt-*.*
-          
+          name: openwrt-firmware-x86_64
+          path: openwrt/bin/targets/x86/64/openwrt-*.{img.gz,bin}
+
       - name: Upload Config
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-config-${{ github.event.inputs.target_device }}
+          name: openwrt-config-x86_64
           path: openwrt/.config
