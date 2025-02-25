@@ -16,7 +16,7 @@ env:
   OPENWRT_VERSION: '23.05.2'
   REPO_URL: 'https://github.com/openwrt/openwrt'
   REPO_BRANCH: 'openwrt-23.05'
-  ROOTFS_PARTSIZE: '2048'  # 减小固件分区大小以加快编译
+  ROOTFS_PARTSIZE: '2048'
 
 jobs:
   build:
@@ -24,13 +24,10 @@ jobs:
     steps:
       - name: Maximize disk space
         run: |
-          # 移除未使用的大型软件包和缓存
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo apt-get clean
-          # 移除 swap 分区以释放空间
           sudo swapoff -a
           sudo rm -f /swapfile
-          # 显示可用空间
           df -h
       
       - name: Install dependencies
@@ -47,8 +44,6 @@ jobs:
           
           # 启用并行下载以加速
           echo "CONFIG_DOWNLOAD_FOLDER=\"$(pwd)/dl\"" > .config
-          echo "CONFIG_DEVEL=y" >> .config
-          echo "CONFIG_ALL_NONSHARED=y" >> .config
           
           # 更新 feeds
           ./scripts/feeds update -a
@@ -58,11 +53,18 @@ jobs:
         run: |
           cd openwrt
           
-          # 克隆精简的必要软件包
+          # 克隆 OpenClash
           git clone https://github.com/vernesong/OpenClash.git package/openclash || echo "Failed to clone OpenClash"
-          git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall || echo "Failed to clone PassWall"
+          
+          # 克隆 PassWall 及其依赖
+          mkdir -p package/passwall
+          git clone https://github.com/xiaorouji/openwrt-passwall.git package/passwall/luci-app-passwall || echo "Failed to clone PassWall"
+          git clone -b packages https://github.com/xiaorouji/openwrt-passwall.git package/passwall/packages || echo "Failed to clone PassWall packages"
+          
+          # 克隆 Argon 主题
           git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon || echo "Failed to clone Argon theme"
 
+          # 更新 feeds 以包含新添加的包
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -74,58 +76,78 @@ jobs:
           CONFIG_PACKAGE_luci-app-firewall=y
           CONFIG_PACKAGE_luci-app-opkg=y
           CONFIG_PACKAGE_luci-app-openclash=y
+          
+          # PassWall 及其依赖
           CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_chinadns-ng=y
+          CONFIG_PACKAGE_dns2socks=y
+          CONFIG_PACKAGE_tcping=y
+          CONFIG_PACKAGE_v2ray-core=y
+          CONFIG_PACKAGE_xray-core=y
+          CONFIG_PACKAGE_brook=y
+          CONFIG_PACKAGE_trojan-plus=y
+          CONFIG_PACKAGE_shadowsocks-libev-ss-local=y
+          CONFIG_PACKAGE_shadowsocks-libev-ss-redir=y
+          
+          # 网络驱动
           CONFIG_PACKAGE_kmod-r8169=y
           CONFIG_PACKAGE_kmod-usb-net=y
           CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
+          
+          # 其他软件包
           CONFIG_PACKAGE_openssh-sftp-server=y
           CONFIG_PACKAGE_luci-theme-argon=y
+          CONFIG_LUCI_LANG_zh_Hans=y
+          
+          # 系统配置
           CONFIG_LUCI_THEME_DEFAULT="argon"
           CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.ROOTFS_PARTSIZE }}
           CONFIG_TARGET_ROOTFS_EXT4FS=y
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
           CONFIG_CCACHE=y
-          # 禁用不需要的功能以加快编译
+          
+          # 精简配置
           CONFIG_KERNEL_KALLSYMS=n
           CONFIG_KERNEL_DEBUG_INFO=n
           CONFIG_KERNEL_DEBUG_KERNEL=n
           CONFIG_KERNEL_SWAP=n
           EOF
           
-          # 应用配置并准备构建
+          # 应用配置
           make defconfig
-          
-          # 显示配置摘要
-          make -j1 V=s config-summary
 
       - name: Download package source
         run: |
           cd openwrt
           make download -j8
-          # 检查下载是否有遗漏
           make download -j1 V=s
 
       - name: Build Firmware (Memory-Safe Mode)
         run: |
           cd openwrt
           
-          # 分阶段编译以减少内存使用
-          # 1. 先编译工具链
+          # 分阶段编译
+          echo "::group::Building toolchain"
           make tools/install -j${{ github.event.inputs.make_threads }}
           make toolchain/install -j${{ github.event.inputs.make_threads }}
+          echo "::endgroup::"
           
-          # 2. 编译基本包
+          echo "::group::Building target"
           make target/compile -j${{ github.event.inputs.make_threads }} || make target/compile -j1 V=s
+          echo "::endgroup::"
           
-          # 3. 编译软件包
+          echo "::group::Building packages"
           make package/compile -j${{ github.event.inputs.make_threads }} || make package/compile -j1 V=s
+          echo "::endgroup::"
           
-          # 4. 安装软件包
+          echo "::group::Installing packages"
           make package/install -j${{ github.event.inputs.make_threads }} || make package/install -j1
+          echo "::endgroup::"
           
-          # 5. 生成固件
+          echo "::group::Building firmware"
           make target/install -j${{ github.event.inputs.make_threads }} || make target/install -j1
           make package/index
+          echo "::endgroup::"
           
           # 显示生成的固件文件
           echo "=== Generated Firmware Files ==="
