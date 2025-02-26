@@ -59,6 +59,9 @@ jobs:
           git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
           if [ $? -ne 0 ]; then echo "Failed to clone Argon theme"; exit 1; fi
 
+          # Add PassWall packages feed
+          echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git" >> feeds.conf.default
+          
           # Update feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
