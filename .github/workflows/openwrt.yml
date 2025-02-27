@@ -11,7 +11,7 @@ on:
 env:
   REPO_URL: 'https://github.com/openwrt/openwrt'
   REPO_BRANCH: 'main'  # Snapshot branch
-  ROOTFS_PARTSIZE: '1024'  # Reduced from 2048 to save space
+  ROOTFS_PARTSIZE: '1024'  # Reduced to save space
   TARGET_DEVICE: 'x86_64'
 
 jobs:
@@ -21,11 +21,11 @@ jobs:
       - name: Maximize disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo rm -rf /usr/local/lib/python* /usr/lib/jvm/* /usr/share/swift
+          sudo rm -rf /tmp/*  # Clean temporary directory
           sudo apt-get clean
           sudo swapoff -a
           sudo rm -f /swapfile
-          sudo rm -rf /usr/local/lib/python*
-          sudo rm -rf /usr/lib/jvm/*
           df -h
 
       - name: Install dependencies
@@ -33,8 +33,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential ccache curl file g++ gawk \
             git libncurses5-dev libssl-dev python3 unzip zlib1g-dev \
-            subversion libxml-parser-perl default-jre-headless
-          sudo apt-get clean  # Clean apt cache after installation
+            subversion libxml-parser-perl default-jre-headless m4 flex
+          sudo apt-get clean
+          df -h
 
       - name: Clone OpenWrt Source
         run: |
@@ -107,7 +108,6 @@ jobs:
         run: |
           cd openwrt
           make download -j8 || make download -j1 V=s
-          # Clean up downloaded sources after use
           rm -rf dl/*.tar.* dl/*.zip dl/*.gz 2>/dev/null || true
           df -h
 
@@ -120,12 +120,11 @@ jobs:
           make toolchain/install -j${{ github.event.inputs.make_threads }} || { echo "Toolchain install failed"; exit 1; }
           echo "::endgroup::"
           
-          # Clean up toolchain intermediates
           rm -rf staging_dir/* build_dir/toolchain-* 2>/dev/null || true
           df -h
           
           echo "::group::Building target"
-          make target/compile -j${{ github.event.inputs.make_threads }} || make target/compile -j1 V=s
+          make target/compile -j${{ github.event.inputs.make_threads }} || { echo "Running with verbose output for debugging..."; make target/compile -j1 V=s; exit 1; }
           if [ $? -ne 0 ]; then echo "Target compilation failed"; exit 1; fi
           echo "::endgroup::"
           
@@ -134,7 +133,6 @@ jobs:
           if [ $? -ne 0 ]; then echo "Package compilation failed"; exit 1; fi
           echo "::endgroup::"
           
-          # Clean up package intermediates
           rm -rf build_dir/target-* 2>/dev/null || true
           df -h
           
