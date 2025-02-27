@@ -11,7 +11,7 @@ on:
 env:
   REPO_URL: 'https://github.com/openwrt/openwrt'
   REPO_BRANCH: 'main'  # Snapshot branch
-  ROOTFS_PARTSIZE: '2048'
+  ROOTFS_PARTSIZE: '1024'  # Reduced from 2048 to save space
   TARGET_DEVICE: 'x86_64'
 
 jobs:
@@ -24,6 +24,8 @@ jobs:
           sudo apt-get clean
           sudo swapoff -a
           sudo rm -f /swapfile
+          sudo rm -rf /usr/local/lib/python*
+          sudo rm -rf /usr/lib/jvm/*
           df -h
 
       - name: Install dependencies
@@ -32,6 +34,7 @@ jobs:
           sudo apt-get install -y build-essential ccache curl file g++ gawk \
             git libncurses5-dev libssl-dev python3 unzip zlib1g-dev \
             subversion libxml-parser-perl default-jre-headless
+          sudo apt-get clean  # Clean apt cache after installation
 
       - name: Clone OpenWrt Source
         run: |
@@ -77,12 +80,10 @@ jobs:
           CONFIG_PACKAGE_docker=y
           CONFIG_PACKAGE_dockerd=y
           
-          # Network drivers (including Intel I226)
+          # Network drivers (Intel I226 and Realtek)
           CONFIG_PACKAGE_kmod-igc=y    # Intel I226 2.5Gbps support
           CONFIG_PACKAGE_kmod-r8168=y  # 2.5Gbps Realtek RTL8125
           CONFIG_PACKAGE_kmod-r8169=y  # 1Gbps Realtek
-          CONFIG_PACKAGE_kmod-usb-net=y
-          CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
           
           # Language support
           CONFIG_LUCI_LANG_zh_Hans=y   # Chinese (Simplified)
@@ -106,6 +107,9 @@ jobs:
         run: |
           cd openwrt
           make download -j8 || make download -j1 V=s
+          # Clean up downloaded sources after use
+          rm -rf dl/*.tar.* dl/*.zip dl/*.gz 2>/dev/null || true
+          df -h
 
       - name: Build Firmware (Memory-Safe Mode)
         run: |
@@ -116,6 +120,10 @@ jobs:
           make toolchain/install -j${{ github.event.inputs.make_threads }} || { echo "Toolchain install failed"; exit 1; }
           echo "::endgroup::"
           
+          # Clean up toolchain intermediates
+          rm -rf staging_dir/* build_dir/toolchain-* 2>/dev/null || true
+          df -h
+          
           echo "::group::Building target"
           make target/compile -j${{ github.event.inputs.make_threads }} || make target/compile -j1 V=s
           if [ $? -ne 0 ]; then echo "Target compilation failed"; exit 1; fi
@@ -125,6 +133,10 @@ jobs:
           make package/compile -j${{ github.event.inputs.make_threads }} || make package/compile -j1 V=s
           if [ $? -ne 0 ]; then echo "Package compilation failed"; exit 1; fi
           echo "::endgroup::"
+          
+          # Clean up package intermediates
+          rm -rf build_dir/target-* 2>/dev/null || true
+          df -h
           
           echo "::group::Installing packages"
           make package/install -j${{ github.event.inputs.make_threads }} || make package/install -j1
