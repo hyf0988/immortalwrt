@@ -1,4 +1,4 @@
-name: Build OpenWrt 23.05.2 with Custom Packages for x86_64
+name: Build OpenWrt Snapshot for x86_64 with I226 Support, HomeProxy, OpenClash, and Docker
 
 on:
   workflow_dispatch:
@@ -9,9 +9,8 @@ on:
         default: '2'
 
 env:
-  OPENWRT_VERSION: '23.05.2'
   REPO_URL: 'https://github.com/openwrt/openwrt'
-  REPO_BRANCH: 'openwrt-23.05'
+  REPO_BRANCH: 'main'  # Snapshot branch
   ROOTFS_PARTSIZE: '2048'
   TARGET_DEVICE: 'x86_64'
 
@@ -50,18 +49,14 @@ jobs:
           git clone https://github.com/vernesong/OpenClash.git package/openclash
           if [ $? -ne 0 ]; then echo "Failed to clone OpenClash"; exit 1; fi
           
-          # Clone PassWall
-          mkdir -p package/passwall
-          git clone -b main https://github.com/xiaorouji/openwrt-passwall.git package/passwall/luci-app-passwall
-          if [ $? -ne 0 ]; then echo "Failed to clone PassWall"; exit 1; fi
+          # Clone HomeProxy
+          git clone https://github.com/immortalwrt/homeproxy.git package/homeproxy
+          if [ $? -ne 0 ]; then echo "Failed to clone HomeProxy"; exit 1; fi
           
-          # Clone Argon theme
-          git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
-          if [ $? -ne 0 ]; then echo "Failed to clone Argon theme"; exit 1; fi
+          # Clone DockerMan (luci-app-dockerman)
+          git clone https://github.com/lisaac/luci-app-dockerman.git package/luci-app-dockerman
+          if [ $? -ne 0 ]; then echo "Failed to clone DockerMan"; exit 1; fi
 
-          # Add PassWall packages feed
-          echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git" >> feeds.conf.default
-          
           # Update feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -74,38 +69,31 @@ jobs:
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-app-firewall=y
           CONFIG_PACKAGE_luci-app-opkg=y
+          
+          # Core packages
           CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-app-homeproxy=y
+          CONFIG_PACKAGE_luci-app-dockerman=y
+          CONFIG_PACKAGE_docker=y
+          CONFIG_PACKAGE_dockerd=y
           
-          # PassWall and dependencies
-          CONFIG_PACKAGE_luci-app-passwall=y
-          CONFIG_PACKAGE_chinadns-ng=y
-          CONFIG_PACKAGE_dns2socks=y
-          CONFIG_PACKAGE_tcping=y
-          CONFIG_PACKAGE_v2ray-core=y
-          CONFIG_PACKAGE_xray-core=y
-          CONFIG_PACKAGE_brook=y
-          CONFIG_PACKAGE_trojan-plus=y
-          CONFIG_PACKAGE_shadowsocks-libev-ss-local=y
-          CONFIG_PACKAGE_shadowsocks-libev-ss-redir=y
-          
-          # Network drivers
-          CONFIG_PACKAGE_kmod-r8169=y
+          # Network drivers (including Intel I226)
+          CONFIG_PACKAGE_kmod-igc=y    # Intel I226 2.5Gbps support
+          CONFIG_PACKAGE_kmod-r8168=y  # 2.5Gbps Realtek RTL8125
+          CONFIG_PACKAGE_kmod-r8169=y  # 1Gbps Realtek
           CONFIG_PACKAGE_kmod-usb-net=y
           CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
           
-          # Other packages
-          CONFIG_PACKAGE_openssh-sftp-server=y
-          CONFIG_PACKAGE_luci-theme-argon=y
-          CONFIG_LUCI_LANG_zh_Hans=y
+          # Language support
+          CONFIG_LUCI_LANG_zh_Hans=y   # Chinese (Simplified)
           
           # System configuration
-          CONFIG_LUCI_THEME_DEFAULT="argon"
           CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.ROOTFS_PARTSIZE }}
           CONFIG_TARGET_ROOTFS_EXT4FS=y
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
           CONFIG_CCACHE=y
           
-          # Lean configuration
+          # Lean configuration for stability
           CONFIG_KERNEL_KALLSYMS=n
           CONFIG_KERNEL_DEBUG_INFO=n
           CONFIG_KERNEL_DEBUG_KERNEL=n
