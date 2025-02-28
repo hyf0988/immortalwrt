@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo rm -rf /usr/local/lib/python* /usr/lib/jvm/* /usr/share/swift
-          sudo rm -rf /tmp/*  # Clean temporary directory
+          sudo rm -rf /tmp/*
           sudo apt-get clean
           sudo swapoff -a
           sudo rm -f /swapfile
@@ -35,6 +35,11 @@ jobs:
             git libncurses5-dev libssl-dev python3 unzip zlib1g-dev \
             subversion libxml-parser-perl default-jre-headless m4 flex
           sudo apt-get clean
+          # Verify m4 and flex installation
+          which m4 || { echo "m4 not found"; exit 1; }
+          which flex || { echo "flex not found"; exit 1; }
+          m4 --version
+          flex --version
           df -h
 
       - name: Clone OpenWrt Source
@@ -112,6 +117,8 @@ jobs:
           df -h
 
       - name: Build Firmware (Memory-Safe Mode)
+        env:
+          PATH: "/usr/bin:/usr/local/bin:/bin"  # Force using system m4 and flex
         run: |
           cd openwrt
           
@@ -121,6 +128,8 @@ jobs:
           echo "::endgroup::"
           
           rm -rf staging_dir/* build_dir/toolchain-* 2>/dev/null || true
+          # Remove OpenWrt's m4 to force system version
+          rm -f staging_dir/host/bin/m4 2>/dev/null || true
           df -h
           
           echo "::group::Building target"
