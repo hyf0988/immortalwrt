@@ -5,7 +5,7 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 
-#include "mt7981.dtsi"
+#include "mt7981b.dtsi"
 
 / {
 	model = "Huasifei WH3000 eMMC version";
@@ -19,12 +19,8 @@
 	};
 
 	chosen {
-		bootargs = "root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
+		bootargs = "root=PARTLABEL=rootfs rootwait";
 		stdout-path = "serial0:115200n8";
-	};
-
-	memory@40000000 {
-		reg = <0 0x40000000 0 0x40000000>;
 	};
 
 	gpio-keys {
@@ -56,18 +52,14 @@
 
 		wlan_led: led-1 {
 			function = LED_FUNCTION_WLAN;
-			color = <LED_COLOR_ID_WHITE>;
+			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "phy1tpt";
 		};
 	};
 
-	usb_vbus: regulator-usb {
-		compatible = "regulator-fixed";
-		regulator-name = "usb-vbus";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		gpios = <&pio 9 GPIO_ACTIVE_LOW>;
-		regulator-boot-on;
+	memory@40000000 {
+		reg = <0 0x40000000 0 0x40000000>;
 	};
 };
 
@@ -109,6 +101,8 @@
 };
 
 &mmc0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
 	bus-width = <8>;
 	cap-mmc-highspeed;
 	max-frequency = <52000000>;
@@ -173,11 +167,17 @@
 	status = "okay";
 };
 
+&usb_phy {
+	status = "okay";
+};
+
 &watchdog {
 	status = "okay";
 };
 
 &wifi {
+	#address-cells = <1>;
+	#size-cells = <0>;
 	nvmem-cells = <&eeprom_factory_0>;
 	nvmem-cell-names = "eeprom";
 	status = "okay";
@@ -189,11 +189,6 @@
 	};
 };
 
-&usb_phy {
-	status = "okay";
-};
-
 &xhci {
 	status = "okay";
-	vbus-supply = <&usb_vbus>;
 };

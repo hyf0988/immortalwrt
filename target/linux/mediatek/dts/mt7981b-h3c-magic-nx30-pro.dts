@@ -5,7 +5,7 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 
-#include "mt7981.dtsi"
+#include "mt7981b.dtsi"
 
 / {
 	model = "H3C Magic NX30 Pro";
@@ -102,7 +102,7 @@
 	pinctrl-0 = <&spi0_flash_pins>;
 	status = "okay";
 
-	spi_nand: spi_nand@0 {
+	spi_nand@0 {
 		compatible = "spi-nand";
 		#address-cells = <1>;
 		#size-cells = <1>;

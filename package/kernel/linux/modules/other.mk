@@ -27,121 +27,6 @@ endef
 $(eval $(call KernelPackage,6lowpan))
 
 
-define KernelPackage/bluetooth
-  SUBMENU:=$(OTHER_MENU)
-  TITLE:=Bluetooth support
-  DEPENDS:=@USB_SUPPORT +kmod-usb-core +kmod-crypto-hash +kmod-crypto-ecb +kmod-lib-crc16 +kmod-hid +kmod-crypto-cmac +kmod-regmap-core +kmod-crypto-ecdh
-  KCONFIG:= \
-	CONFIG_BT \
-	CONFIG_BT_BREDR=y \
-	CONFIG_BT_DEBUGFS=n \
-	CONFIG_BT_LE=y \
-	CONFIG_BT_RFCOMM \
-	CONFIG_BT_BNEP \
-	CONFIG_BT_HCIBTUSB \
-	CONFIG_BT_HCIBTUSB_BCM=y \
-	CONFIG_BT_HCIBTUSB_MTK=y \
-	CONFIG_BT_HCIBTUSB_RTL=y \
-	CONFIG_BT_HCIUART \
-	CONFIG_BT_HCIUART_BCM=y \
-	CONFIG_BT_HCIUART_INTEL=n \
-	CONFIG_BT_HCIUART_H4 \
-	CONFIG_BT_HCIUART_NOKIA=n \
-	CONFIG_BT_HIDP
-  $(call AddDepends/rfkill)
-  FILES:= \
-	$(LINUX_DIR)/net/bluetooth/bluetooth.ko \
-	$(LINUX_DIR)/net/bluetooth/rfcomm/rfcomm.ko \
-	$(LINUX_DIR)/net/bluetooth/bnep/bnep.ko \
-	$(LINUX_DIR)/net/bluetooth/hidp/hidp.ko \
-	$(LINUX_DIR)/drivers/bluetooth/hci_uart.ko \
-	$(LINUX_DIR)/drivers/bluetooth/btusb.ko \
-	$(LINUX_DIR)/drivers/bluetooth/btbcm.ko \
-	$(LINUX_DIR)/drivers/bluetooth/btintel.ko \
-	$(LINUX_DIR)/drivers/bluetooth/btrtl.ko \
-	$(LINUX_DIR)/drivers/bluetooth/btmtk.ko
-  AUTOLOAD:=$(call AutoProbe,bluetooth rfcomm bnep hidp hci_uart btusb)
-endef
-
-define KernelPackage/bluetooth/description
- Kernel support for Bluetooth devices
-endef
-
-$(eval $(call KernelPackage,bluetooth))
-
-define KernelPackage/ath3k
-  SUBMENU:=$(OTHER_MENU)
-  TITLE:=ATH3K Kernel Module support
-  DEPENDS:=+kmod-bluetooth +ar3k-firmware
-  KCONFIG:= \
-	CONFIG_BT_ATH3K \
-	CONFIG_BT_HCIUART_ATH3K=y
-  FILES:= \
-	$(LINUX_DIR)/drivers/bluetooth/ath3k.ko
-  AUTOLOAD:=$(call AutoProbe,ath3k)
-endef
-
-define KernelPackage/ath3k/description
- Kernel support for ATH3K Module
-endef
-
-$(eval $(call KernelPackage,ath3k))
-
-
-define KernelPackage/bluetooth-6lowpan
-  SUBMENU:=$(OTHER_MENU)
-  TITLE:=Bluetooth 6LoWPAN support
-  DEPENDS:=+kmod-6lowpan +kmod-bluetooth
-  KCONFIG:=CONFIG_BT_6LOWPAN
-  FILES:=$(LINUX_DIR)/net/bluetooth/bluetooth_6lowpan.ko
-  AUTOLOAD:=$(call AutoProbe,bluetooth_6lowpan)
-endef
-
-define KernelPackage/bluetooth-6lowpan/description
- Kernel support for 6LoWPAN over Bluetooth Low Energy devices
-endef
-
-$(eval $(call KernelPackage,bluetooth-6lowpan))
-
-
-define KernelPackage/btmrvl
-  SUBMENU:=$(OTHER_MENU)
-  TITLE:=Marvell Bluetooth Kernel Module support
-  DEPENDS:=+kmod-mmc +kmod-bluetooth +mwifiex-sdio-firmware
-  KCONFIG:= \
-	CONFIG_BT_MRVL \
-	CONFIG_BT_MRVL_SDIO
-  FILES:= \
-	$(LINUX_DIR)/drivers/bluetooth/btmrvl.ko \
-	$(LINUX_DIR)/drivers/bluetooth/btmrvl_sdio.ko
-  AUTOLOAD:=$(call AutoProbe,btmrvl btmrvl_sdio)
-endef
-
-define KernelPackage/btmrvl/description
- Kernel support for Marvell SDIO Bluetooth Module
-endef
-
-$(eval $(call KernelPackage,btmrvl))
-
-
-define KernelPackage/btsdio
-  SUBMENU:=$(OTHER_MENU)
-  TITLE:=Bluetooth HCI SDIO driver
-  DEPENDS:=+kmod-bluetooth +kmod-mmc
-  KCONFIG:= \
-	CONFIG_BT_HCIBTSDIO
-  FILES:= \
-	$(LINUX_DIR)/drivers/bluetooth/btsdio.ko
-  AUTOLOAD:=$(call AutoProbe,btsdio)
-endef
-
-define KernelPackage/btsdio/description
- Kernel support for Bluetooth device with SDIO interface
-endef
-
-$(eval $(call KernelPackage,btsdio))
-
-
 define KernelPackage/dma-buf
   SUBMENU:=$(OTHER_MENU)
   TITLE:=DMA shared buffer support
@@ -678,6 +563,7 @@ $(eval $(call KernelPackage,reed-solomon))
 define KernelPackage/serial-8250
   SUBMENU:=$(OTHER_MENU)
   TITLE:=8250 UARTs
+  DEPENDS:=@!TARGET_uml
   KCONFIG:= CONFIG_SERIAL_8250 \
 	CONFIG_SERIAL_8250_PCI \
 	CONFIG_SERIAL_8250_NR_UARTS=16 \
@@ -738,7 +624,7 @@ $(eval $(call KernelPackage,regmap-core))
 define KernelPackage/regmap-spi
   SUBMENU:=$(OTHER_MENU)
   TITLE:=SPI register map support
-  DEPENDS:=+kmod-regmap-core
+  DEPENDS:=+kmod-regmap-core @!TARGET_uml
   HIDDEN:=1
   KCONFIG:=CONFIG_REGMAP_SPI \
 	   CONFIG_SPI=y
@@ -802,6 +688,11 @@ $(eval $(call KernelPackage,ikconfig))
 
 define KernelPackage/zram
   SUBMENU:=$(OTHER_MENU)
+  DEPENDS:= \
+	+(KERNEL_ZRAM_BACKEND_LZO||KERNEL_ZRAM_DEF_COMP_LZORLE||KERNEL_ZRAM_DEF_COMP_LZO):kmod-lib-lzo \
+	+(KERNEL_ZRAM_BACKEND_LZ4||KERNEL_ZRAM_DEF_COMP_LZ4):kmod-lib-lz4 \
+	+(KERNEL_ZRAM_BACKEND_LZ4HC||KERNEL_ZRAM_DEF_COMP_LZ4HC):kmod-lib-lz4hc \
+	+(KERNEL_ZRAM_BACKEND_ZSTD||KERNEL_ZRAM_DEF_COMP_ZSTD):kmod-lib-zstd
   TITLE:=ZRAM
   KCONFIG:= \
 	CONFIG_ZSMALLOC \
@@ -821,29 +712,49 @@ endef
 
 define KernelPackage/zram/config
   if PACKAGE_kmod-zram
+    if !LINUX_6_6
+        config KERNEL_ZRAM_BACKEND_LZO
+                bool "lzo and lzo-rle compression support"
+
+        config KERNEL_ZRAM_BACKEND_LZ4
+                bool "lz4 compression support"
+
+        config KERNEL_ZRAM_BACKEND_LZ4HC
+                bool "lz4hc compression support"
+
+        config KERNEL_ZRAM_BACKEND_ZSTD
+                bool "zstd compression support"
+
+        config KERNEL_ZRAM_BACKEND_FORCE_LZO
+                def_bool !KERNEL_ZRAM_BACKEND_LZ4 && \
+                         !KERNEL_ZRAM_BACKEND_LZ4HC && \
+                         !KERNEL_ZRAM_BACKEND_ZSTD
+                select KERNEL_ZRAM_BACKEND_LZO
+
+    endif
     choice
       prompt "ZRAM Default compressor"
-      default ZRAM_DEF_COMP_LZORLE
+      default KERNEL_ZRAM_DEF_COMP_LZORLE
 
-    config ZRAM_DEF_COMP_LZORLE
+    config KERNEL_ZRAM_DEF_COMP_LZORLE
             bool "lzo-rle"
-            select PACKAGE_kmod-lib-lzo
+            depends on KERNEL_ZRAM_BACKEND_LZO || LINUX_6_6
 
-    config ZRAM_DEF_COMP_LZO
+    config KERNEL_ZRAM_DEF_COMP_LZO
             bool "lzo"
-            select PACKAGE_kmod-lib-lzo
+            depends on KERNEL_ZRAM_BACKEND_LZO || LINUX_6_6
 
-    config ZRAM_DEF_COMP_LZ4
+    config KERNEL_ZRAM_DEF_COMP_LZ4
             bool "lz4"
-            select PACKAGE_kmod-lib-lz4
+            depends on KERNEL_ZRAM_BACKEND_LZ4 || LINUX_6_6
 
-    config ZRAM_DEF_COMP_LZ4HC
+    config KERNEL_ZRAM_DEF_COMP_LZ4HC
             bool "lz4-hc"
-            select PACKAGE_kmod-lib-lz4hc
+            depends on KERNEL_ZRAM_BACKEND_LZ4HC || LINUX_6_6
 
-    config ZRAM_DEF_COMP_ZSTD
+    config KERNEL_ZRAM_DEF_COMP_ZSTD
             bool "zstd"
-            select PACKAGE_kmod-lib-zstd
+            depends on KERNEL_ZRAM_BACKEND_ZSTD || LINUX_6_6
 
     endchoice
   endif
@@ -1042,8 +953,7 @@ $(eval $(call KernelPackage,keys-trusted))
 define KernelPackage/tpm
   SUBMENU:=$(OTHER_MENU)
   TITLE:=TPM Hardware Support
-  DEPENDS:= +kmod-random-core +kmod-asn1-decoder \
-	  +kmod-asn1-encoder +kmod-oid-registry
+  DEPENDS:= +kmod-random-core
   KCONFIG:= CONFIG_TCG_TPM
   FILES:= $(LINUX_DIR)/drivers/char/tpm/tpm.ko
   AUTOLOAD:=$(call AutoLoad,10,tpm,1)
@@ -1058,7 +968,7 @@ $(eval $(call KernelPackage,tpm))
 define KernelPackage/tpm-tis
   SUBMENU:=$(OTHER_MENU)
   TITLE:=TPM TIS 1.2 Interface / TPM 2.0 FIFO Interface
-	DEPENDS:= @TARGET_x86 +kmod-tpm
+	DEPENDS:= @(TARGET_x86||TARGET_armsr) +kmod-tpm
   KCONFIG:= CONFIG_TCG_TIS
   FILES:= \
 	$(LINUX_DIR)/drivers/char/tpm/tpm_tis.ko \

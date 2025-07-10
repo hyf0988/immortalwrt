@@ -19,6 +19,7 @@
 #include <linux/platform_device.h>
 #include <linux/of_device.h>
 #include <linux/of_irq.h>
+#include <linux/of_platform.h>
 
 #include <ralink_regs.h>
 
@@ -284,11 +285,9 @@ static int mt7620_gsw_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int mt7620_gsw_remove(struct platform_device *pdev)
+static void mt7620_gsw_remove(struct platform_device *pdev)
 {
 	platform_set_drvdata(pdev, NULL);
-
-	return 0;
 }
 
 static struct platform_driver gsw_driver = {

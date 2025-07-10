@@ -108,7 +108,7 @@ tplink_do_upgrade() {
 	nand_do_upgrade "$1"
 }
 
-linksys_mx_do_upgrade() {
+linksys_mx_pre_upgrade() {
 	local setenv_script="/tmp/fw_env_upgrade"
 
 	CI_UBIPART="rootfs"
@@ -144,7 +144,6 @@ linksys_mx_do_upgrade() {
 			return 1
 		}
 	fi
-	nand_do_upgrade "$1"
 }
 
 platform_check_image() {
@@ -222,13 +221,15 @@ platform_do_upgrade() {
 	linksys,mx4200v1|\
 	linksys,mx4200v2|\
 	linksys,mx4300)
+		linksys_mx_pre_upgrade "$1"
 		remove_oem_ubi_volume squashfs
-		linksys_mx_do_upgrade "$1"
+		nand_do_upgrade "$1"
 		;;
 	linksys,mx5300|\
 	linksys,mx8500)
+		linksys_mx_pre_upgrade "$1"
 		remove_oem_ubi_volume ubifs
-		linksys_mx_do_upgrade "$1"
+		nand_do_upgrade "$1"
 		;;
 	prpl,haze|\
 	qnap,301w)
@@ -256,7 +257,8 @@ platform_do_upgrade() {
 		nand_do_upgrade "$1"
 		;;
 	redmi,ax6-stock|\
-	xiaomi,ax3600-stock)
+	xiaomi,ax3600-stock|\
+	xiaomi,ax9000-stock)
 		part_num="$(fw_printenv -n flag_boot_rootfs)"
 		if [ "$part_num" -eq "1" ]; then
 			CI_UBIPART="rootfs_1"
@@ -288,6 +290,7 @@ platform_do_upgrade() {
 		CI_DATAPART="rootfs_data"
 		emmc_do_upgrade "$1"
 		;;
+	tplink,deco-x80-5g|\
 	tplink,eap620hd-v1|\
 	tplink,eap660hd-v1)
 		tplink_do_upgrade "$1"
