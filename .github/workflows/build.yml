@@ -1,408 +1,182 @@
-name: Build ImmortalWrt 24.10.2 with PassWall2 (Ubuntu 22.04+ Compatible)
+name: Build ImmortalWrt 24.10.2
 
 on:
-  workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'Build configuration'
-        required: true
-        default: 'minimal'
-        type: choice
-        options:
-        - 'minimal'
-        - 'full'
-      make_threads:
-        description: 'Compilation threads'
-        required: true
-        default: '1'
-        type: choice
-        options:
-        - '1'
-        - '2'
+  workflow_dispatch:   # 仅保留手动触发
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-24.10
   REPO_VERSION: v24.10.2
+  CONFIG_FILE: .config
   TZ: Asia/Shanghai
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 明确指定 Ubuntu 版本
+    runs-on: ubuntu-latest
     steps:
-    - name: Free up disk space
-      run: |
-        echo "=== Initial disk space ==="
-        df -h
-        
-        # 清理不必要的软件和文件
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
-        sudo rm -rf /usr/local/lib/python* /usr/lib/jvm/* /usr/share/swift /usr/share/vim
-        sudo rm -rf /usr/local/share/boost /usr/local/share/powershell /usr/share/man
-        sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-        
-        # 清理包缓存
-        sudo apt-get clean
-        sudo apt-get autoclean
-        
-        # 禁用 swap
-        sudo swapoff -a
-        sudo rm -f /swapfile /mnt/swapfile
-        
-        echo "=== After cleanup ==="
-        df -h
-        free -h
+    - name: Checkout
+      uses: actions/checkout@main
 
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Install build dependencies (Ubuntu 22.04+ compatible)
+    - name: Init Environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        # 更新包列表
-        sudo apt-get update -qq
-        
-        echo "=== Installing core dependencies ==="
-        # 安装核心构建依赖（Ubuntu 22.04+ 兼容）
-        sudo apt-get install -y --no-install-recommends \
-          build-essential \
-          ccache \
-          curl \
-          file \
-          g++ \
-          gawk \
-          git \
-          libncurses5-dev \
-          libssl-dev \
-          python3 \
-          python3-dev \
-          python3-setuptools \
-          python3-pip \
-          unzip \
-          zlib1g-dev \
-          subversion \
-          libxml-parser-perl \
-          m4 \
-          flex \
-          bison \
-          rsync \
-          wget
-        
-        echo "=== Installing additional dependencies ==="
-        # 安装额外依赖
-        sudo apt-get install -y --no-install-recommends \
-          libtool \
-          autoconf \
-          automake \
-          pkg-config \
-          libglib2.0-dev \
-          intltool
-        
-        # 清理安装缓存
-        sudo apt-get autoremove --purge -y
-        sudo apt-get clean
-        sudo rm -rf /var/lib/apt/lists/*
-        
-        # 设置时区
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
-        
-        echo "=== Dependencies installed successfully ==="
-        df -h
-        
-        # 验证关键工具
-        echo "=== Verifying tools ==="
-        python3 --version
-        gcc --version | head -1
-        m4 --version | head -1
-        flex --version | head -1
 
-    - name: Clone ImmortalWrt source
+    - name: Clone Source Code
       run: |
-        echo "=== Cloning ImmortalWrt repository ==="
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
         cd openwrt
-        
-        # 检出指定版本
         git checkout $REPO_VERSION
-        echo "Checked out version: $(git describe --tags)"
-        
-        echo "=== Updating package feeds ==="
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        
-        echo "=== Source preparation completed ==="
 
-    - name: Generate build configuration
+    - name: Generate Config File
       run: |
         cd openwrt
-        
-        echo "=== Generating configuration for ${{ github.event.inputs.build_type }} build ==="
-        
-        if [ "${{ github.event.inputs.build_type }}" = "minimal" ]; then
-          cat > .config <<EOF
-        # Target Platform
+        cat > .config <<EOF
         CONFIG_TARGET_x86=y
         CONFIG_TARGET_x86_64=y
         CONFIG_TARGET_x86_64_DEVICE_generic=y
-        
-        # Basic System
+
+        # 基本软件包
         CONFIG_PACKAGE_luci=y
-        CONFIG_LUCI_LANG_zh_Hans=y
-        
-        # Proxy Applications
-        CONFIG_PACKAGE_luci-app-passwall2=y
-        CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
-        CONFIG_PACKAGE_luci-app-openclash=y
-        CONFIG_PACKAGE_luci-app-homeproxy=y
-        
-        # PassWall2 Components
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Libev_Client=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
-        
-        # Docker Support (Minimal)
         CONFIG_PACKAGE_luci-app-dockerman=y
-        CONFIG_PACKAGE_docker-ce=y
-        
-        # Essential Network Drivers
-        CONFIG_PACKAGE_kmod-igc=y      # Intel I226 2.5G
-        CONFIG_PACKAGE_kmod-r8169=y    # Realtek 1G
-        CONFIG_PACKAGE_kmod-r8125=y    # Realtek 2.5G
-        
-        # Kernel Configuration (Minimal)
-        CONFIG_DOCKER_CGROUP_OPTIONS=y
-        CONFIG_KERNEL_CGROUP_DEVICE=y
-        CONFIG_KERNEL_CGROUP_FREEZER=y
-        CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
-        
-        # Storage Configuration
-        CONFIG_TARGET_KERNEL_PARTSIZE=32
-        CONFIG_TARGET_ROOTFS_PARTSIZE=1024
-        CONFIG_TARGET_ROOTFS_EXT4FS=y
-        
-        # Build Optimization
-        CONFIG_CCACHE=y
-        CONFIG_KERNEL_KALLSYMS=n
-        CONFIG_KERNEL_DEBUG_INFO=n
-        EOF
-        else
-          cat > .config <<EOF
-        # Target Platform
-        CONFIG_TARGET_x86=y
-        CONFIG_TARGET_x86_64=y
-        CONFIG_TARGET_x86_64_DEVICE_generic=y
-        
-        # Basic System
-        CONFIG_PACKAGE_luci=y
-        CONFIG_LUCI_LANG_zh_Hans=y
-        CONFIG_PACKAGE_luci-theme-material=y
-        
-        # All Proxy Applications
+        CONFIG_PACKAGE_luci-lib-docker=y
+        CONFIG_PACKAGE_docker-compose=y
         CONFIG_PACKAGE_luci-app-openclash=y
-        CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
         CONFIG_PACKAGE_luci-app-homeproxy=y
-        CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
         CONFIG_PACKAGE_luci-app-passwall=y
-        CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
         CONFIG_PACKAGE_luci-app-passwall2=y
-        CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
-        
-        # PassWall/PassWall2 Components
         CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
         CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Libev_Client=y
         CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
         CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Sing_Box=y
-        
-        # Full Docker Support
-        CONFIG_PACKAGE_luci-app-dockerman=y
-        CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+
+        # 分区大小设置
+        CONFIG_TARGET_KERNEL_PARTSIZE=32
+        CONFIG_TARGET_ROOTFS_PARTSIZE=2048
+
+        # Docker 相关配置
         CONFIG_PACKAGE_docker-ce=y
-        CONFIG_PACKAGE_docker-compose=y
         CONFIG_DOCKER_CGROUP_OPTIONS=y
         CONFIG_DOCKER_NET_MACVLAN=y
         CONFIG_DOCKER_STO_EXT4=y
-        
-        # Full Network Driver Support
-        CONFIG_PACKAGE_kmod-igc=y      # Intel I226 2.5G
-        CONFIG_PACKAGE_kmod-igb=y      # Intel 1G
-        CONFIG_PACKAGE_kmod-e1000e=y   # Intel 1G
-        CONFIG_PACKAGE_kmod-r8169=y    # Realtek 1G
-        CONFIG_PACKAGE_kmod-r8125=y    # Realtek 2.5G
-        CONFIG_PACKAGE_kmod-i40e=y     # Intel 10G
-        
-        # Full Kernel Support
         CONFIG_KERNEL_CGROUP_DEVICE=y
         CONFIG_KERNEL_CGROUP_FREEZER=y
         CONFIG_KERNEL_CGROUP_NET_PRIO=y
         CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
+        CONFIG_KERNEL_EXT4_FS_SECURITY=y
         CONFIG_KERNEL_FS_POSIX_ACL=y
         CONFIG_KERNEL_NET_CLS_CGROUP=y
-        
-        # Storage Configuration
-        CONFIG_TARGET_KERNEL_PARTSIZE=64
-        CONFIG_TARGET_ROOTFS_PARTSIZE=2048
-        CONFIG_TARGET_ROOTFS_EXT4FS=y
-        
-        # System Tools
-        CONFIG_PACKAGE_wget-ssl=y
-        CONFIG_PACKAGE_curl=y
-        CONFIG_PACKAGE_htop=y
-        CONFIG_PACKAGE_nano=y
-        CONFIG_PACKAGE_ca-certificates=y
-        
-        # Build Optimization
-        CONFIG_CCACHE=y
-        EOF
-        fi
-        
-        echo "=== Configuration generated ==="
-        echo "Lines in config: $(wc -l < .config)"
+        CONFIG_KERNEL_MEMCG_SWAP=y
+        CONFIG_KERNEL_MEMCG_SWAP_ENABLED=y
+        CONFIG_KERNEL_CGROUP_PERF=y
+        CONFIG_KERNEL_CGROUP_HUGETLB=y
+        CONFIG_KERNEL_PROC_PID_CPUSET=y
 
-    - name: Load configuration
+        # 有线网卡驱动
+        CONFIG_PACKAGE_kmod-igb=y
+        CONFIG_PACKAGE_kmod-e1000e=y
+        CONFIG_PACKAGE_kmod-r8169=y
+        CONFIG_PACKAGE_kmod-r8125=y
+        CONFIG_PACKAGE_kmod-igc=y
+
+        # USB 支持
+        CONFIG_PACKAGE_kmod-usb-core=y
+        CONFIG_PACKAGE_kmod-usb-hid=y
+        CONFIG_PACKAGE_kmod-usb2=y
+        CONFIG_PACKAGE_kmod-usb2-pci=y
+        CONFIG_PACKAGE_kmod-usb3=y
+
+        # 文件系统支持
+        CONFIG_PACKAGE_kmod-fs-ext4=y
+        CONFIG_PACKAGE_kmod-fs-ntfs=y
+        CONFIG_PACKAGE_kmod-fs-vfat=y
+        CONFIG_PACKAGE_ntfs-3g=y
+
+        # Dockerman 依赖
+        CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+        CONFIG_DOCKER_OPTIONAL_FEATURES=y
+        CONFIG_DOCKER_NET_ENCRYPT=y
+        CONFIG_DOCKER_NET_OVERLAY=y
+        CONFIG_DOCKER_NET_TFTP=y
+
+        # 中文语言包
+        CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
+        EOF
+
+    - name: Download Package
       run: |
         cd openwrt
         make defconfig
-        
-        echo "=== Configuration loaded ==="
-        echo "Verifying key packages..."
-        grep -E "(passwall2|openclash|dockerman)" .config | head -10 || echo "Package check completed"
+        make download -j8
 
-    - name: Download packages
+    - name: Compile Firmware
       run: |
         cd openwrt
-        
-        echo "=== Starting package download ==="
-        # 多次尝试下载，增加成功率
-        for attempt in {1..3}; do
-          echo "Download attempt $attempt"
-          if make download -j8 V=s; then
-            echo "✅ Download successful"
-            break
-          else
-            echo "❌ Download attempt $attempt failed"
-            if [ $attempt -eq 3 ]; then
-              echo "All download attempts failed"
-              exit 1
-            fi
-            echo "Waiting 30s before retry..."
-            sleep 30
-          fi
-        done
-        
-        echo "=== Download completed ==="
-        echo "Downloaded packages: $(find dl -name "*.tar.*" | wc -l)"
-        df -h
+        echo "开始编译，使用 $(nproc) 个线程"
+        make -j$(nproc) || make -j1 V=s
 
-    - name: Compile firmware
+    - name: Check Firmware
       run: |
-        cd openwrt
-        
-        echo "=== Starting compilation ==="
-        echo "Build type: ${{ github.event.inputs.build_type }}"
-        echo "Threads: ${{ github.event.inputs.make_threads }}"
-        
-        # 设置内存限制
-        ulimit -v 4194304  # 4GB
-        
-        # 开始编译
-        start_time=$(date +%s)
-        
-        if [ "${{ github.event.inputs.make_threads }}" = "1" ]; then
-          echo "=== Single-threaded compilation ==="
-          make -j1 V=s 2>&1 | tee build.log
-        else
-          echo "=== Multi-threaded compilation ==="
-          if ! make -j${{ github.event.inputs.make_threads }} 2>&1 | tee build.log; then
-            echo "=== Multi-threaded failed, retrying single-threaded ==="
-            make -j1 V=s 2>&1 | tee build-retry.log
-          fi
-        fi
-        
-        end_time=$(date +%s)
-        duration=$((end_time - start_time))
-        echo "=== Compilation completed in ${duration} seconds ==="
+        cd openwrt/bin/targets
+        find . -name "*.img*" -o -name "*.bin" | head -10
 
-    - name: Check build results
-      run: |
-        cd openwrt
-        
-        echo "=== Checking build results ==="
-        if [ -d "bin/targets/x86/64" ]; then
-          echo "✅ Build directory exists"
-          ls -lah bin/targets/x86/64/
-          
-          # 检查固件文件
-          if ls bin/targets/x86/64/immortalwrt-*.img.gz 1> /dev/null 2>&1; then
-            echo "✅ Firmware image found"
-            for file in bin/targets/x86/64/immortalwrt-*.img.gz; do
-              echo "Firmware: $(basename $file) ($(stat -f%z $file 2>/dev/null || stat -c%s $file) bytes)"
-            done
-          else
-            echo "❌ No firmware image found"
-            echo "Available files:"
-            ls -la bin/targets/x86/64/ || echo "Directory empty"
-            exit 1
-          fi
-        else
-          echo "❌ Build directory not found"
-          find bin -type f -name "*.img.gz" 2>/dev/null || echo "No firmware files anywhere"
-          exit 1
-        fi
-
-    - name: Upload firmware
-      uses: actions/upload-artifact@v4
-      if: success()
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@main
       with:
-        name: immortalwrt-24.10.2-${{ github.event.inputs.build_type }}-passwall2
-        path: |
-          openwrt/bin/targets/x86/64/immortalwrt-*.img.gz
-          openwrt/bin/targets/x86/64/immortalwrt-*.bin
-        retention-days: 30
+        name: immortalwrt-24.10.2-firmware
+        path: openwrt/bin/targets/
 
-    - name: Upload build logs
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: build-logs-${{ github.event.inputs.build_type }}-${{ github.run_number }}
-        path: openwrt/build*.log
-        retention-days: 7
-
-    - name: Create release
-      uses: softprops/action-gh-release@v1
-      if: success()
+    - name: Generate Release Tag
+      id: tag
+      run: |
+        echo "release_tag=24.10.2-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: immortalwrt-24.10.2-${{ github.event.inputs.build_type }}-$(date +"%Y%m%d-%H%M")
-        name: ImmortalWrt 24.10.2 with PassWall2 (${{ github.event.inputs.build_type }})
-        files: openwrt/bin/targets/x86/64/immortalwrt-*.*
-        body: |
-          ## ImmortalWrt 24.10.2 固件 - 包含 PassWall2
-          
-          **构建配置**: ${{ github.event.inputs.build_type == 'minimal' && '极简版' || '完整版' }}  
-          **构建时间**: $(date +'%Y-%m-%d %H:%M:%S')  
-          **系统兼容**: Ubuntu 22.04+ 优化构建
-          
-          ### ✅ 已解决问题:
-          - 修复了 python3-distutils 依赖问题
-          - 优化了内存和磁盘空间使用
-          - 增加了构建重试机制
-          
-          ### 📦 包含功能:
-          - **PassWall2** - 新一代代理工具 (推荐)
-          - **OpenClash** - Clash 内核代理
-          - **HomeProxy** - 轻量级代理工具  
-          ${{ github.event.inputs.build_type == 'full' && '- **PassWall** - 经典代理工具' || '' }}
-          - **DockerMan** - Docker 容器管理
-          - **Intel I226/Realtek 网卡支持**
-          
-          ### 🔧 升级说明:
-          ```bash
-          # 不保留配置升级 (推荐)
-          sysupgrade -n immortalwrt-24.10.2-xxx.img.gz
-          ```
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: ImmortalWrt_24.10.2_${{ steps.tag.outputs.release_date }}
+        files: openwrt/bin/targets/*/*/*
         draft: false
         prerelease: false
+        body: |
+          ## ImmortalWrt 24.10.2 固件发布
+          
+          **构建时间**: ${{ steps.tag.outputs.release_date }}
+          **目标平台**: x86_64
+          
+          ### 包含的主要功能:
+          - ✅ Docker & DockerMan 管理界面
+          - ✅ OpenClash 代理工具
+          - ✅ HomeProxy 透明代理
+          - ✅ PassWall 代理工具
+          - ✅ PassWall2 代理工具 (新增)
+          - ✅ 完整网卡驱动支持 (包括 2.5G 网卡)
+          - ✅ USB 和文件系统支持
+          - ✅ 中文界面
+          
+          ### 系统配置:
+          - 内核分区: 32MB
+          - 根文件系统: 2048MB
+          
+          ### 安装说明:
+          1. 下载对应的固件文件
+          2. 使用 DD 命令或专用工具写入到存储设备
+          3. 默认IP: 192.168.1.1，用户名: root，密码为空
