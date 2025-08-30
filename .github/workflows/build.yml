@@ -15,17 +15,19 @@ jobs:
     - name: Checkout
       uses: actions/checkout@main
 
-    - name: Init Environment and Free Disk Space
+    - name: Maximize Build Space
+      run: |
+        echo "Initial free space:"
+        df -h
+        # Remove large, non-essential directories
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /opt/hostedtoolcache /usr/local/share/boost /usr/lib/jvm
+        echo "Space after cleaning:"
+        df -h
+
+    - name: Init Environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        # Free up disk space by removing large, pre-installed tools.
-        echo "Initial free space:"
-        df -h
-        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell
-        echo "Space after cleaning:"
-        df -h
-        
         # Install build dependencies
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
