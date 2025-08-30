@@ -15,23 +15,23 @@ jobs:
     - name: Checkout
       uses: actions/checkout@main
 
-    - name: Init Environment
+    - name: Init Environment and Free Disk Space
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        # Free up disk space by removing large, pre-installed tools.
+        echo "Initial free space:"
+        df -h
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell
+        echo "Space after cleaning:"
+        df -h
+        
+        # Install build dependencies
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
-
-    - name: Free Up Disk Space
-      uses: jlumbroso/free-disk-space-action@main
-      with:
-        # This is the amount of free space to ensure in GB.
-        # It will removetool-cache, android, and haskell to free up space.
-        free-space-in-gb: 20
 
     - name: Clone Source Code
       run: |
