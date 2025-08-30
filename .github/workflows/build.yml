@@ -46,6 +46,9 @@ jobs:
       run: |
         cd openwrt
         cat > .config <<EOF
+        # Disable ccache to save disk space
+        CONFIG_ccache=n
+
         # Target System
         CONFIG_TARGET_x86=y
         CONFIG_TARGET_x86_64=y
