@@ -5,7 +5,7 @@ on:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-24.10  # 更新为最新的 24.10 分支
+  REPO_BRANCH: openwrt-24.10
   TZ: Asia/Shanghai
 
 jobs:
@@ -21,11 +21,17 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        # 注意：依赖脚本的URL也同步更新到对应的分支
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
+
+    - name: Free Up Disk Space
+      uses: jlumbroso/free-disk-space-action@main
+      with:
+        # This is the amount of free space to ensure in GB.
+        # It will removetool-cache, android, and haskell to free up space.
+        free-space-in-gb: 20
 
     - name: Clone Source Code
       run: |
@@ -118,7 +124,7 @@ jobs:
     - name: Upload Artifacts
       uses: actions/upload-artifact@main
       with:
-        name: immortalwrt-24.10-firmware # 更新 Artifact 名称
+        name: immortalwrt-24.10-firmware
         path: openwrt/bin/targets/
 
     - name: Generate Release Tag
@@ -133,7 +139,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ImmortalWrt_24.10_${{ steps.tag.outputs.release_date }} # 更新 Release 标题
+        name: ImmortalWrt_24.10_${{ steps.tag.outputs.release_date }}
         files: openwrt/bin/targets/*/*/*
         draft: false
         prerelease: false
