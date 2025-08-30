@@ -1,13 +1,11 @@
-name: Build ImmortalWrt 24.10.2
+name: Build Latest ImmortalWrt 24.10
 
 on:
-  workflow_dispatch:   # 仅保留手动触发
+  workflow_dispatch:   # 手动触发构建
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-24.10
-  REPO_VERSION: v24.10.2
-  CONFIG_FILE: .config
+  REPO_BRANCH: openwrt-24.10  # 更新为最新的 24.10 分支
   TZ: Asia/Shanghai
 
 jobs:
@@ -23,6 +21,7 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
+        # 注意：依赖脚本的URL也同步更新到对应的分支
         sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
@@ -32,7 +31,6 @@ jobs:
       run: |
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         cd openwrt
-        git checkout $REPO_VERSION
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
@@ -40,33 +38,38 @@ jobs:
       run: |
         cd openwrt
         cat > .config <<EOF
+        # Target System
         CONFIG_TARGET_x86=y
         CONFIG_TARGET_x86_64=y
         CONFIG_TARGET_x86_64_DEVICE_generic=y
 
-        # 基本软件包
-        CONFIG_PACKAGE_luci=y
-        CONFIG_PACKAGE_luci-app-dockerman=y
-        CONFIG_PACKAGE_luci-lib-docker=y
-        CONFIG_PACKAGE_docker-compose=y
-        CONFIG_PACKAGE_luci-app-openclash=y
-        CONFIG_PACKAGE_luci-app-homeproxy=y
-        CONFIG_PACKAGE_luci-app-passwall=y
-        CONFIG_PACKAGE_luci-app-passwall2=y
-        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
-        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
-
-        # 分区大小设置
+        # Partition Size Settings
         CONFIG_TARGET_KERNEL_PARTSIZE=32
         CONFIG_TARGET_ROOTFS_PARTSIZE=2048
 
-        # Docker 相关配置
+        # Basic LuCI Applications
+        CONFIG_PACKAGE_luci=y
+        CONFIG_PACKAGE_luci-app-openclash=y
+        CONFIG_PACKAGE_luci-app-homeproxy=y
+        CONFIG_PACKAGE_luci-app-passwall=y
+        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
+        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y
+
+        # Dockerman and Dependencies
+        CONFIG_PACKAGE_luci-app-dockerman=y
+        CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
         CONFIG_PACKAGE_docker-ce=y
+        CONFIG_PACKAGE_luci-lib-docker=y
+        CONFIG_PACKAGE_docker-compose=y
+
+        # Docker Kernel Options
         CONFIG_DOCKER_CGROUP_OPTIONS=y
         CONFIG_DOCKER_NET_MACVLAN=y
         CONFIG_DOCKER_STO_EXT4=y
+        CONFIG_DOCKER_OPTIONAL_FEATURES=y
+        CONFIG_DOCKER_NET_ENCRYPT=y
+        CONFIG_DOCKER_NET_OVERLAY=y
+        CONFIG_DOCKER_NET_TFTP=y
         CONFIG_KERNEL_CGROUP_DEVICE=y
         CONFIG_KERNEL_CGROUP_FREEZER=y
         CONFIG_KERNEL_CGROUP_NET_PRIO=y
@@ -79,42 +82,26 @@ jobs:
         CONFIG_KERNEL_CGROUP_PERF=y
         CONFIG_KERNEL_CGROUP_HUGETLB=y
         CONFIG_KERNEL_PROC_PID_CPUSET=y
-
-        # 有线网卡驱动
+        
+        # Wired Network Drivers
         CONFIG_PACKAGE_kmod-igb=y
         CONFIG_PACKAGE_kmod-e1000e=y
         CONFIG_PACKAGE_kmod-r8169=y
         CONFIG_PACKAGE_kmod-r8125=y
         CONFIG_PACKAGE_kmod-igc=y
-
-        # USB 支持
+        
+        # USB Support
         CONFIG_PACKAGE_kmod-usb-core=y
         CONFIG_PACKAGE_kmod-usb-hid=y
         CONFIG_PACKAGE_kmod-usb2=y
         CONFIG_PACKAGE_kmod-usb2-pci=y
         CONFIG_PACKAGE_kmod-usb3=y
-
-        # 文件系统支持
+        
+        # Filesystem Support
         CONFIG_PACKAGE_kmod-fs-ext4=y
         CONFIG_PACKAGE_kmod-fs-ntfs=y
         CONFIG_PACKAGE_kmod-fs-vfat=y
         CONFIG_PACKAGE_ntfs-3g=y
-
-        # Dockerman 依赖
-        CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
-        CONFIG_DOCKER_OPTIONAL_FEATURES=y
-        CONFIG_DOCKER_NET_ENCRYPT=y
-        CONFIG_DOCKER_NET_OVERLAY=y
-        CONFIG_DOCKER_NET_TFTP=y
-
-        # 中文语言包
-        CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
         EOF
 
     - name: Download Package
@@ -126,57 +113,27 @@ jobs:
     - name: Compile Firmware
       run: |
         cd openwrt
-        echo "开始编译，使用 $(nproc) 个线程"
         make -j$(nproc) || make -j1 V=s
-
-    - name: Check Firmware
-      run: |
-        cd openwrt/bin/targets
-        find . -name "*.img*" -o -name "*.bin" | head -10
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@main
       with:
-        name: immortalwrt-24.10.2-firmware
+        name: immortalwrt-24.10-firmware # 更新 Artifact 名称
         path: openwrt/bin/targets/
 
     - name: Generate Release Tag
       id: tag
       run: |
-        echo "release_tag=24.10.2-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        echo "release_tag=24.10-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
         
     - name: Create Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ImmortalWrt_24.10.2_${{ steps.tag.outputs.release_date }}
+        name: ImmortalWrt_24.10_${{ steps.tag.outputs.release_date }} # 更新 Release 标题
         files: openwrt/bin/targets/*/*/*
         draft: false
         prerelease: false
-        body: |
-          ## ImmortalWrt 24.10.2 固件发布
-          
-          **构建时间**: ${{ steps.tag.outputs.release_date }}
-          **目标平台**: x86_64
-          
-          ### 包含的主要功能:
-          - ✅ Docker & DockerMan 管理界面
-          - ✅ OpenClash 代理工具
-          - ✅ HomeProxy 透明代理
-          - ✅ PassWall 代理工具
-          - ✅ PassWall2 代理工具 (新增)
-          - ✅ 完整网卡驱动支持 (包括 2.5G 网卡)
-          - ✅ USB 和文件系统支持
-          - ✅ 中文界面
-          
-          ### 系统配置:
-          - 内核分区: 32MB
-          - 根文件系统: 2048MB
-          
-          ### 安装说明:
-          1. 下载对应的固件文件
-          2. 使用 DD 命令或专用工具写入到存储设备
-          3. 默认IP: 192.168.1.1，用户名: root，密码为空
