@@ -11,7 +11,7 @@ env:
   
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 使用更稳定的 22.04 版本
+    runs-on: ubuntu-22.04
     
     steps:
     - name: Checkout
@@ -21,65 +21,34 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        # 显示初始磁盘使用情况
         echo "=== 初始磁盘使用情况 ==="
         df -h
-        
-        # 更彻底的系统清理
         echo "=== 开始系统清理 ==="
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo rm -rf /usr/local/.ghcup /usr/local/lib/android /usr/local/share/boost /usr/local/go
         sudo rm -rf /opt/az /opt/microsoft /usr/share/swift /usr/local/share/chromium /usr/local/share/powershell
-        
-        # 清理 Docker 和容器相关
         sudo systemctl stop docker
         sudo docker system prune -a -f --volumes || true
         sudo rm -rf /var/lib/docker /var/lib/containerd
-        
-        # 清理更多不需要的软件
         sudo rm -rf /usr/local/share/vcpkg /usr/local/share/cmake* /usr/local/graalvm /usr/local/sqlpackage
         sudo rm -rf /home/linuxbrew /usr/local/miniconda /usr/share/miniconda /usr/local/lib/heroku
-        
-        # 清理 APT 缓存
         sudo apt-get clean
         sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-        
-        # 清理日志
         sudo journalctl --vacuum-time=1d
         sudo rm -rf /var/log/*.log /var/log/*/*.log
-        
         echo "=== 第一轮清理后磁盘使用情况 ==="
         df -h
-        
-        # 更新软件源
         sudo -E apt-get -qq update
-        
-        # 安装编译依赖 - 使用官方依赖脚本
         echo "=== 安装编译依赖 ==="
-        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
-        
-        # 补充额外依赖
-        sudo -E apt-get -qq install \
-          rsync \
-          curl \
-          wget \
-          time \
-          file || echo "部分包安装失败，但可能不影响编译"
-        
-        # 清理安装缓存
+        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-22.04)
+        sudo -E apt-get -qq install rsync curl wget time file || echo "部分包安装失败，但可能不影响编译"
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
-        
-        # 设置时区
         sudo timedatectl set-timezone "$TZ"
-        
-        # 设置编译环境变量
         echo "CCACHE_DIR=/tmp/ccache" >> $GITHUB_ENV
         echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
-        
         echo "=== 最终清理后磁盘使用情况 ==="
         df -h
-        echo "=== 可用空间检查 ==="
         AVAIL_GB=$(df / | tail -1 | awk '{print int($4/1024/1024)}')
         echo "可用空间: ${AVAIL_GB}GB"
         if [ $AVAIL_GB -lt 15 ]; then
@@ -91,21 +60,14 @@ jobs:
     - name: Clone Source Code
       run: |
         echo "=== 开始克隆源代码 ==="
-        # 使用浅克隆节省空间和时间
         git clone $REPO_URL --depth 1 -b $REPO_BRANCH openwrt
         cd openwrt
-        
-        # 切换到指定版本
         git fetch --depth 1 origin tag $REPO_VERSION
         git checkout $REPO_VERSION
-        
         echo "=== 更新和安装软件源 ==="
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        
-        # 清理不需要的软件源缓存
         rm -rf feeds/*/tmp feeds/*/.git
-        
         echo "=== 源码准备完成，当前磁盘使用情况 ==="
         df -h
         echo "=== OpenWrt 源码目录大小 ==="
@@ -114,27 +76,19 @@ jobs:
     - name: Load Custom Configuration
       run: |
         cd openwrt
-        # 方式1: 使用仓库中的配置文件
         if [ -f "../space-optimized.config" ]; then
           echo "=== 使用自定义配置文件 ==="
           cp ../space-optimized.config .config
         else
           echo "=== 使用内置配置 ==="
-          cat > .config << 'EOF'
-          
+          cat > .config << EOF
 CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_DEVICE_generic=y
-
-# 分区大小优化
 CONFIG_TARGET_KERNEL_PARTSIZE=32
 CONFIG_TARGET_ROOTFS_PARTSIZE=1024
-
-# 基础系统
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-ssl=y
-
-# 代理工具套装
 CONFIG_PACKAGE_luci-app-openclash=y
 CONFIG_PACKAGE_luci-app-homeproxy=y
 CONFIG_PACKAGE_luci-app-passwall=y
@@ -145,8 +99,6 @@ CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y
 CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
 CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
 CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y
-
-# Docker 支持
 CONFIG_PACKAGE_luci-app-dockerman=y
 CONFIG_PACKAGE_luci-lib-docker=y
 CONFIG_PACKAGE_docker=y
@@ -159,22 +111,16 @@ CONFIG_KERNEL_CGROUP_FREEZER=y
 CONFIG_KERNEL_NET_CLS_CGROUP=y
 CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
 CONFIG_KERNEL_FS_POSIX_ACL=y
-
-# 网卡驱动
 CONFIG_PACKAGE_kmod-igb=y
 CONFIG_PACKAGE_kmod-e1000e=y
 CONFIG_PACKAGE_kmod-r8169=y
 CONFIG_PACKAGE_kmod-r8125=y
 CONFIG_PACKAGE_kmod-igc=y
-
-# USB 和文件系统
 CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb2=y
 CONFIG_PACKAGE_kmod-usb3=y
 CONFIG_PACKAGE_kmod-fs-ext4=y
 CONFIG_PACKAGE_kmod-fs-vfat=y
-
-# 中文界面
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
@@ -182,8 +128,6 @@ CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
-
-# 编译和引导配置
 CONFIG_CCACHE=y
 CONFIG_BUILD_LOG=y
 CONFIG_GRUB_TIMEOUT="3"
@@ -193,11 +137,7 @@ CONFIG_TARGET_ROOTFS_EXT4FS=y
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 EOF
         fi
-        
-        # 应用配置
         make defconfig
-        
-        # 显示配置差异
         ./scripts/diffconfig.sh > diffconfig.txt
         echo "=== 最终配置差异 ==="
         cat diffconfig.txt
@@ -207,11 +147,8 @@ EOF
         cd openwrt
         echo "=== 开始下载软件包 ==="
         make download -j8
-        
-        # 清理下载失败的文件
         find dl -size -1024c -exec ls -l {} \; || true
         find dl -size -1024c -exec rm -f {} \; || true
-        
         echo "=== 下载完成，磁盘使用情况 ==="
         df -h
 
@@ -223,54 +160,34 @@ EOF
         echo "可用CPU核心: $(nproc)"
         echo "可用内存: $(free -h)"
         echo "磁盘空间: $(df -h /)"
-        
-        # 检查可用空间
         AVAIL_GB=$(df / | tail -1 | awk '{print int($4/1024/1024)}')
         echo "剩余可用空间: ${AVAIL_GB}GB"
-        
         if [ $AVAIL_GB -lt 10 ]; then
           echo "❌ 错误: 可用空间不足 10GB，无法继续编译"
           exit 1
         fi
-        
-        # 设置环境变量
         export FORCE_UNSAFE_CONFIGURE=1
         export CCACHE_DIR=/tmp/ccache
         export CCACHE_MAXSIZE=2G
-        
-        # 创建编译日志目录
         mkdir -p logs
-        
         echo "=== 开始编译固件 ==="
         echo "编译开始时间: $(date)"
-        
-        # 开始编译，使用较少的并行度以节省内存
         JOBS=$(($(nproc) < 4 ? $(nproc) : 4))
         echo "使用 $JOBS 个并行任务进行编译"
-        
         make -j$JOBS V=s 2>&1 | tee logs/build.log || {
           echo "=== 多线程编译失败，尝试单线程编译 ==="
           echo "单线程编译开始时间: $(date)"
-          
-          # 清理失败的编译文件以节省空间
           make clean 2>/dev/null || true
-          
-          # 单线程编译
           make -j1 V=s 2>&1 | tee logs/build-single.log
         }
-        
         echo "=== 编译完成 ==="
         echo "编译结束时间: $(date)"
         echo "status=success" >> $GITHUB_OUTPUT
-        
         echo "=== 编译后磁盘使用情况 ==="
         df -h
-        
-        # 编译后清理以节省空间
         echo "=== 清理编译缓存 ==="
         make clean 2>/dev/null || true
         rm -rf build_dir/host build_dir/hostpkg tmp
-        
         echo "=== 清理后磁盘使用情况 ==="
         df -h
 
@@ -308,7 +225,7 @@ EOF
         echo "release_date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
 
     - name: Upload Firmware To Release
-      uses: softprops/action-gh-release@master
+      uses: softprops/action-gh-release@v1
       if: steps.compile.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -348,7 +265,7 @@ EOF
           - 精简不必要组件
           
           > 此版本专门针对 GitHub Actions 免费空间限制优化，确保编译成功率。
-        files: ${{ env.FIRMWARE }}/*
+        files: "${{ env.FIRMWARE }}/*" # ✅ FIX: Added quotes around the path with a wildcard
         draft: false
         prerelease: false
 
