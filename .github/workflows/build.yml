@@ -1,114 +1,300 @@
-name: Build Minimal ImmortalWrt 24.10
+name: Build ImmortalWrt (Space Optimized)
 
 on:
-  workflow_dispatch:   # 手动触发构建
+  workflow_dispatch:
+    inputs:
+      ssh_connection:
+        description: 'SSH connection to debug'
+        required: false
+        default: 'false'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-24.10
+  REPO_VERSION: v24.10.2
   TZ: Asia/Shanghai
-
+  
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    
     steps:
     - name: Checkout
-      uses: actions/checkout@main
-
-    - name: Maximize Build Space
-      run: |
-        echo "Initial free space:"
-        df -h
-        # Remove large, non-essential directories
-        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /opt/hostedtoolcache /usr/local/share/boost /usr/lib/jvm
-        echo "Space after cleaning:"
-        df -h
-
-    - name: Init Environment
+      uses: actions/checkout@v4
+      
+    - name: Initialization Environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
+        # 显示初始磁盘使用情况
+        echo "=== 初始磁盘使用情况 ==="
+        df -h
+        
+        # 清理系统以释放空间
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force
+        sudo rm -rf /usr/local/.ghcup /usr/local/lib/android /usr/local/share/boost /usr/local/go
+        
+        # 更新软件源并安装依赖
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
+        sudo -E apt-get -qq install build-essential ccache ecj fastjar file g++ gawk \
+          gettext git java-propose-classpath libelf-dev libncurses5-dev \
+          libncursesw5-dev libssl-dev python3 python3-dev python3-distutils python3-setuptools \
+          subversion swig time xsltproc zlib1g-dev rsync unzip
+        
+        # 清理缓存
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
+        
+        # 设置时区
         sudo timedatectl set-timezone "$TZ"
+        
+        echo "=== 清理后磁盘使用情况 ==="
+        df -h
 
     - name: Clone Source Code
       run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        echo "=== 开始克隆源代码 ==="
+        git clone $REPO_URL --depth 1 -b $REPO_BRANCH openwrt
         cd openwrt
+        
+        # 切换到指定版本
+        git fetch --depth 1 origin tag $REPO_VERSION
+        git checkout $REPO_VERSION
+        
+        echo "=== 更新和安装软件源 ==="
         ./scripts/feeds update -a
         ./scripts/feeds install -a
+        
+        echo "=== 源码准备完成，磁盘使用情况 ==="
+        df -h
 
-    - name: Generate Config File
+    - name: Load Custom Configuration
       run: |
         cd openwrt
-        # 使用来自 build-23.05.yml 的精简配置，以避免磁盘空间问题
-        cat > .config <<EOF
-        # Disable ccache to save disk space
-        CONFIG_ccache=n
-
-        # Target System
-        CONFIG_TARGET_x86=y
-        CONFIG_TARGET_x86_64=y
-        CONFIG_TARGET_x86_64_DEVICE_generic=y
-
-        # Partition Size Settings
-        CONFIG_TARGET_KERNEL_PARTSIZE=32
-        CONFIG_TARGET_ROOTFS_PARTSIZE=2048
-
-        # Minimal Package Selection
-        CONFIG_PACKAGE_luci=y
-        CONFIG_PACKAGE_luci-app-dockerman=y
-        CONFIG_PACKAGE_luci-app-docker=y
-        CONFIG_PACKAGE_luci-app-openclash=y
-        CONFIG_PACKAGE_luci-app-homeproxy=y
-
-        # Docker Kernel Options
-        CONFIG_DOCKER_CGROUP_OPTIONS=y
-        CONFIG_DOCKER_NET_MACVLAN=y
-        CONFIG_DOCKER_STO_EXT4=y
-        CONFIG_KERNEL_CGROUP_DEVICE=y
-        CONFIG_KERNEL_CGROUP_FREEZER=y
-        CONFIG_KERNEL_CGROUP_NET_PRIO=y
-        CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
-        CONFIG_KERNEL_EXT4_FS_SECURITY=y
-        CONFIG_KERNEL_FS_POSIX_ACL=y
-        CONFIG_KERNEL_NET_CLS_CGROUP=y
-        EOF
+        # 方式1: 使用仓库中的配置文件
+        if [ -f "../space-optimized.config" ]; then
+          echo "=== 使用自定义配置文件 ==="
+          cp ../space-optimized.config .config
+        else
+          echo "=== 使用内置配置 ==="
+          cat > .config <<EOF
+          # 目标平台
+          CONFIG_TARGET_x86=y
+          CONFIG_TARGET_x86_64=y
+          CONFIG_TARGET_x86_64_DEVICE_generic=y
+          
+          # 分区大小优化
+          CONFIG_TARGET_KERNEL_PARTSIZE=32
+          CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+          
+          # 基础系统
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl=y
+          
+          # 代理工具套装
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-app-homeproxy=y
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-app-passwall2=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y
+          
+          # Docker 支持
+          CONFIG_PACKAGE_luci-app-dockerman=y
+          CONFIG_PACKAGE_luci-lib-docker=y
+          CONFIG_PACKAGE_docker=y
+          CONFIG_PACKAGE_dockerd=y
+          CONFIG_DOCKER_CGROUP_OPTIONS=y
+          CONFIG_DOCKER_NET_MACVLAN=y
+          CONFIG_DOCKER_STO_EXT4=y
+          CONFIG_KERNEL_CGROUP_DEVICE=y
+          CONFIG_KERNEL_CGROUP_FREEZER=y
+          CONFIG_KERNEL_NET_CLS_CGROUP=y
+          CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
+          CONFIG_KERNEL_FS_POSIX_ACL=y
+          
+          # 网卡驱动
+          CONFIG_PACKAGE_kmod-igb=y
+          CONFIG_PACKAGE_kmod-e1000e=y
+          CONFIG_PACKAGE_kmod-r8169=y
+          CONFIG_PACKAGE_kmod-r8125=y
+          CONFIG_PACKAGE_kmod-igc=y
+          
+          # USB 和文件系统
+          CONFIG_PACKAGE_kmod-usb-core=y
+          CONFIG_PACKAGE_kmod-usb2=y
+          CONFIG_PACKAGE_kmod-usb3=y
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          CONFIG_PACKAGE_kmod-fs-vfat=y
+          
+          # 中文界面
+          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
+          
+          # 编译和引导配置
+          CONFIG_CCACHE=y
+          CONFIG_BUILD_LOG=y
+          CONFIG_GRUB_TIMEOUT="3"
+          CONFIG_GRUB_TITLE="ImmortalWrt"
+          CONFIG_GRUB_IMAGES=y
+          CONFIG_TARGET_ROOTFS_EXT4FS=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          EOF
+        fi
+        
+        # 应用配置
+        make defconfig
+        
+        # 显示配置差异
+        ./scripts/diffconfig.sh > diffconfig.txt
+        echo "=== 最终配置差异 ==="
+        cat diffconfig.txt
 
     - name: Download Package
       run: |
         cd openwrt
-        make defconfig
+        echo "=== 开始下载软件包 ==="
         make download -j8
+        
+        # 清理下载失败的文件
+        find dl -size -1024c -exec ls -l {} \; || true
+        find dl -size -1024c -exec rm -f {} \; || true
+        
+        echo "=== 下载完成，磁盘使用情况 ==="
+        df -h
+
+    - name: SSH Connection To Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh_connection == 'true' && github.event.inputs.ssh_connection != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     - name: Compile Firmware
+      id: compile
       run: |
         cd openwrt
-        # Use -j1 to force single-threaded compilation and reduce memory usage
-        make -j1 V=s
+        echo "=== 开始编译固件 ==="
+        echo "可用CPU核心: $(nproc)"
+        echo "可用内存: $(free -h)"
+        echo "磁盘空间: $(df -h)"
+        
+        # 设置环境变量
+        export FORCE_UNSAFE_CONFIGURE=1
+        
+        # 开始编译
+        make -j$(nproc) V=s || {
+          echo "=== 多线程编译失败，尝试单线程编译 ==="
+          make -j1 V=s
+        }
+        
+        echo "=== 编译完成状态检查 ==="
+        echo "status=success" >> $GITHUB_OUTPUT
+        
+        echo "=== 编译后磁盘使用情况 ==="
+        df -h
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@main
+    - name: Check Space Usage
+      run: |
+        echo "=== 最终空间使用报告 ==="
+        df -h
+        echo ""
+        echo "=== 编译目录大小 ==="
+        du -sh openwrt/ 2>/dev/null || echo "无法计算目录大小"
+        echo ""
+        echo "=== 固件文件 ==="
+        find openwrt/bin/targets/ -name "*.img*" -o -name "*.bin" -o -name "*.gz" | head -10
+
+    - name: Organize Files
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload Firmware Directory
+      uses: actions/upload-artifact@v4
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       with:
-        name: immortalwrt-24.10-firmware
-        path: openwrt/bin/targets/
+        name: immortalwrt-24.10.2-x86_64
+        path: ${{ env.FIRMWARE }}
+        retention-days: 7
 
     - name: Generate Release Tag
       id: tag
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        echo "release_tag=24.10-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
-        
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
+        echo "release_tag=24.10.2-$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
+        echo "release_date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+
+    - name: Upload Firmware To Release
+      uses: softprops/action-gh-release@master
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ImmortalWrt_24.10_Minimal_${{ steps.tag.outputs.release_date }}
-        files: openwrt/bin/targets/*/*/*
+        name: ImmortalWrt_24.10.2_${{ steps.tag.outputs.release_date }}
+        body: |
+          ## 🚀 ImmortalWrt 24.10.2 空间优化版
+          
+          **构建时间**: ${{ steps.tag.outputs.release_date }}  
+          **目标平台**: x86_64  
+          **版本**: 24.10.2 最新稳定版
+          
+          ### ✨ 主要功能
+          - ✅ **OpenClash** - Clash 代理工具
+          - ✅ **HomeProxy** - 透明代理
+          - ✅ **PassWall** - 科学上网工具
+          - ✅ **PassWall2** - 新一代科学上网工具 🆕
+          - ✅ **Docker + DockerMan** - 容器管理
+          - ✅ **完整网卡驱动** (包含2.5G网卡支持)
+          - ✅ **中文界面** - 完整本地化
+          
+          ### 🔧 系统配置
+          - 内核分区: 32MB
+          - 根分区: 1024MB (优化版)
+          - 引导方式: GRUB (支持UEFI)
+          
+          ### 📥 使用说明
+          1. 下载对应固件文件
+          2. 使用 Rufus/Etcher 写入U盘或硬盘
+          3. 默认IP: `192.168.1.1`
+          4. 用户名: `root`，密码: 空
+          
+          ### ⚡ 性能优化
+          - 启用编译缓存加速
+          - 优化磁盘占用
+          - 精简不必要组件
+          
+          > 此版本专门针对 GitHub Actions 免费空间限制优化，确保编译成功率。
+        files: ${{ env.FIRMWARE }}/*
         draft: false
         prerelease: false
+
+    - name: Delete Workflow Runs
+      uses: Mattraks/delete-workflow-runs@v2
+      with:
+        token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        retain_days: 3
+        keep_minimum_runs: 2
+
+    - name: Remove Old Releases
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      with:
+        keep_latest: 5
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
