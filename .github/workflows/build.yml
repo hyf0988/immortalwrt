@@ -11,7 +11,7 @@ env:
   
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04  # 使用更稳定的 22.04 版本
     
     steps:
     - name: Checkout
@@ -51,12 +51,20 @@ jobs:
         echo "=== 第一轮清理后磁盘使用情况 ==="
         df -h
         
-        # 更新软件源并安装依赖
+        # 更新软件源
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install build-essential ccache ecj fastjar file g++ gawk \
-          gettext git java-propose-classpath libelf-dev libncurses5-dev \
-          libncursesw5-dev libssl-dev python3 python3-dev python3-distutils python3-setuptools \
-          subversion swig time xsltproc zlib1g-dev rsync unzip
+        
+        # 安装编译依赖 - 使用官方依赖脚本
+        echo "=== 安装编译依赖 ==="
+        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
+        
+        # 补充额外依赖
+        sudo -E apt-get -qq install \
+          rsync \
+          curl \
+          wget \
+          time \
+          file || echo "部分包安装失败，但可能不影响编译"
         
         # 清理安装缓存
         sudo -E apt-get -qq autoremove --purge
