@@ -135,7 +135,7 @@ jobs:
           CONFIG_GRUB_IMAGES=y
           CONFIG_TARGET_ROOTFS_EXT4FS=y
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
-          EOF
+EOF
         fi
         make defconfig
         ./scripts/diffconfig.sh > diffconfig.txt
@@ -172,7 +172,7 @@ jobs:
         mkdir -p logs
         echo "=== 开始编译固件 ==="
         echo "编译开始时间: $(date)"
-        JOVBS=$(($(nproc) < 4 ? $(nproc) : 4))
+        JOBS=$(($(nproc) < 4 ? $(nproc) : 4))
         echo "使用 $JOBS 个并行任务进行编译"
         make -j$JOBS V=s 2>&1 | tee logs/build.log || {
           echo "=== 多线程编译失败，尝试单线程编译 ==="
