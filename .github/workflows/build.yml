@@ -120,78 +120,77 @@ jobs:
           cp ../space-optimized.config .config
         else
           echo "=== 使用内置配置 ==="
-          cat > .config <<EOF
-          # 目标平台
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_DEVICE_generic=y
-          
-          # 分区大小优化
-          CONFIG_TARGET_KERNEL_PARTSIZE=32
-          CONFIG_TARGET_ROOTFS_PARTSIZE=1024
-          
-          # 基础系统
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl=y
-          
-          # 代理工具套装
-          CONFIG_PACKAGE_luci-app-openclash=y
-          CONFIG_PACKAGE_luci-app-homeproxy=y
-          CONFIG_PACKAGE_luci-app-passwall=y
-          CONFIG_PACKAGE_luci-app-passwall2=y
-          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
-          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y
-          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y
-          
-          # Docker 支持
-          CONFIG_PACKAGE_luci-app-dockerman=y
-          CONFIG_PACKAGE_luci-lib-docker=y
-          CONFIG_PACKAGE_docker=y
-          CONFIG_PACKAGE_dockerd=y
-          CONFIG_DOCKER_CGROUP_OPTIONS=y
-          CONFIG_DOCKER_NET_MACVLAN=y
-          CONFIG_DOCKER_STO_EXT4=y
-          CONFIG_KERNEL_CGROUP_DEVICE=y
-          CONFIG_KERNEL_CGROUP_FREEZER=y
-          CONFIG_KERNEL_NET_CLS_CGROUP=y
-          CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
-          CONFIG_KERNEL_FS_POSIX_ACL=y
-          
-          # 网卡驱动
-          CONFIG_PACKAGE_kmod-igb=y
-          CONFIG_PACKAGE_kmod-e1000e=y
-          CONFIG_PACKAGE_kmod-r8169=y
-          CONFIG_PACKAGE_kmod-r8125=y
-          CONFIG_PACKAGE_kmod-igc=y
-          
-          # USB 和文件系统
-          CONFIG_PACKAGE_kmod-usb-core=y
-          CONFIG_PACKAGE_kmod-usb2=y
-          CONFIG_PACKAGE_kmod-usb3=y
-          CONFIG_PACKAGE_kmod-fs-ext4=y
-          CONFIG_PACKAGE_kmod-fs-vfat=y
-          
-          # 中文界面
-          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
-          
-          # 编译和引导配置
-          CONFIG_CCACHE=y
-          CONFIG_BUILD_LOG=y
-          CONFIG_GRUB_TIMEOUT="3"
-          CONFIG_GRUB_TITLE="ImmortalWrt"
-          CONFIG_GRUB_IMAGES=y
-          CONFIG_TARGET_ROOTFS_EXT4FS=y
-          CONFIG_TARGET_ROOTFS_SQUASHFS=y
-          EOF
+          cat > .config << 'EOF'
+CONFIG_TARGET_x86=y
+CONFIG_TARGET_x86_64=y
+CONFIG_TARGET_x86_64_DEVICE_generic=y
+
+# 分区大小优化
+CONFIG_TARGET_KERNEL_PARTSIZE=32
+CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+
+# 基础系统
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl=y
+
+# 代理工具套装
+CONFIG_PACKAGE_luci-app-openclash=y
+CONFIG_PACKAGE_luci-app-homeproxy=y
+CONFIG_PACKAGE_luci-app-passwall=y
+CONFIG_PACKAGE_luci-app-passwall2=y
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y
+CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
+CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
+CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y
+
+# Docker 支持
+CONFIG_PACKAGE_luci-app-dockerman=y
+CONFIG_PACKAGE_luci-lib-docker=y
+CONFIG_PACKAGE_docker=y
+CONFIG_PACKAGE_dockerd=y
+CONFIG_DOCKER_CGROUP_OPTIONS=y
+CONFIG_DOCKER_NET_MACVLAN=y
+CONFIG_DOCKER_STO_EXT4=y
+CONFIG_KERNEL_CGROUP_DEVICE=y
+CONFIG_KERNEL_CGROUP_FREEZER=y
+CONFIG_KERNEL_NET_CLS_CGROUP=y
+CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
+CONFIG_KERNEL_FS_POSIX_ACL=y
+
+# 网卡驱动
+CONFIG_PACKAGE_kmod-igb=y
+CONFIG_PACKAGE_kmod-e1000e=y
+CONFIG_PACKAGE_kmod-r8169=y
+CONFIG_PACKAGE_kmod-r8125=y
+CONFIG_PACKAGE_kmod-igc=y
+
+# USB 和文件系统
+CONFIG_PACKAGE_kmod-usb-core=y
+CONFIG_PACKAGE_kmod-usb2=y
+CONFIG_PACKAGE_kmod-usb3=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+
+# 中文界面
+CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
+
+# 编译和引导配置
+CONFIG_CCACHE=y
+CONFIG_BUILD_LOG=y
+CONFIG_GRUB_TIMEOUT="3"
+CONFIG_GRUB_TITLE="ImmortalWrt"
+CONFIG_GRUB_IMAGES=y
+CONFIG_TARGET_ROOTFS_EXT4FS=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+EOF
         fi
         
         # 应用配置
