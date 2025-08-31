@@ -75,13 +75,13 @@ jobs:
 
     - name: Load Custom Configuration
       run: |
+        set -e
         cd openwrt
         if [ -f "../space-optimized.config" ]; then
           echo "=== 使用自定义配置文件 ==="
           cp ../space-optimized.config .config
         else
           echo "=== 使用内置配置 ==="
-          # Define the configuration as a multi-line string
           CONFIG_CONTENT="
           CONFIG_TARGET_x86=y
           CONFIG_TARGET_x86_64=y
@@ -137,7 +137,6 @@ jobs:
           CONFIG_TARGET_ROOTFS_EXT4FS=y
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
           "
-          # Use printf to write the string to the .config file
           printf "%s\n" "${CONFIG_CONTENT}" > .config
         fi
         make defconfig
@@ -148,7 +147,6 @@ jobs:
     - name: Download Package
       run: |
         cd openwrt
-        echo "=== 开始下载软件包 ==="
         make download -j8
         find dl -size -1024c -exec ls -l {} \; || true
         find dl -size -1024c -exec rm -f {} \; || true
@@ -158,6 +156,7 @@ jobs:
     - name: Compile Firmware
       id: compile
       run: |
+        set -e
         cd openwrt
         echo "=== 编译前环境检查 ==="
         echo "可用CPU核心: $(nproc)"
@@ -177,59 +176,45 @@ jobs:
         echo "编译开始时间: $(date)"
         JOBS=$(($(nproc) < 4 ? $(nproc) : 4))
         echo "使用 $JOBS 个并行任务进行编译"
-        make -j$JOBS V=s 2>&1 | tee logs/build.log || {
-          echo "=== 多线程编译失败，尝试单线程编译 ==="
-          echo "单线程编译开始时间: $(date)"
-          make clean 2>/dev/null || true
-          make -j1 V=s 2>&1 | tee logs/build-single.log
-        }
+        make -j$JOBS V=s
         echo "=== 编译完成 ==="
         echo "编译结束时间: $(date)"
         echo "status=success" >> $GITHUB_OUTPUT
-        echo "=== 编译后磁盘使用情况 ==="
-        df -h
-        echo "=== 清理编译缓存 ==="
-        make clean 2>/dev/null || true
-        rm -rf build_dir/host build_dir/hostpkg tmp
-        echo "=== 清理后磁盘使用情况 ==="
-        df -h
-
-    - name: Check Space Usage
-      run: |
-        echo "=== 最终空间使用报告 ==="
-        df -h
-        echo ""
-        echo "=== 编译目录大小 ==="
-        du -sh openwrt/ 2>/dev/null || echo "无法计算目录大小"
-        echo ""
-        echo "=== 固件文件 ==="
-        find openwrt/bin/targets/ -name "*.img*" -o -name "*.bin" -o -name "*.gz" | head -10
 
     - name: Organize Files
+      id: organize
+      if: success()
       run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        set -e
+        echo "--- Listing build artifacts ---"
+        ls -R openwrt/bin/targets
+        FIRMWARE_PATH=$(find openwrt/bin/targets -type f -name "*.img.gz" | xargs dirname | head -n 1)
+        if [[ -z "$FIRMWARE_PATH" ]]; then
+          echo "::error::Could not find firmware directory."
+          exit 1
+        fi
+        echo "--- Found firmware in: $FIRMWARE_PATH ---"
+        echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload Firmware Directory
       uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: success() && steps.organize.outputs.status == 'success'
       with:
         name: immortalwrt-24.10.2-x86_64
-        path: ${{ env.FIRMWARE }}
+        path: ${{ env.FIRMWARE_PATH }}
         retention-days: 7
 
     - name: Generate Release Tag
       id: tag
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: success() && steps.organize.outputs.status == 'success'
       run: |
         echo "release_tag=24.10.2-$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
         echo "release_date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
 
     - name: Upload Firmware To Release
       uses: softprops/action-gh-release@v1
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: success() && steps.organize.outputs.status == 'success'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
@@ -268,7 +253,7 @@ jobs:
           - 精简不必要组件
           
           > 此版本专门针对 GitHub Actions 免费空间限制优化，确保编译成功率。
-        files: "${{ env.FIRMWARE }}/*"
+        files: "${{ env.FIRMWARE_PATH }}/*"
         draft: false
         prerelease: false
 
@@ -282,7 +267,7 @@ jobs:
 
     - name: Remove Old Releases
       uses: dev-drprasad/delete-older-releases@v0.3.4
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: success() && steps.organize.outputs.status == 'success'
       with:
         keep_latest: 5
         delete_tags: true
