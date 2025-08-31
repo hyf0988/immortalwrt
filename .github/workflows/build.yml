@@ -87,7 +87,8 @@ jobs:
     - name: Compile Firmware
       run: |
         cd openwrt
-        make -j$(nproc) || make -j1 V=s
+        # Use -j1 to force single-threaded compilation and reduce memory usage
+        make -j1 V=s
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@main
