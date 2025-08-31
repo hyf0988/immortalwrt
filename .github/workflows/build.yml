@@ -81,7 +81,8 @@ jobs:
           cp ../space-optimized.config .config
         else
           echo "=== 使用内置配置 ==="
-          cat > .config << EOF
+          # Define the configuration as a multi-line string
+          CONFIG_CONTENT="
           CONFIG_TARGET_x86=y
           CONFIG_TARGET_x86_64=y
           CONFIG_TARGET_x86_64_DEVICE_generic=y
@@ -130,12 +131,14 @@ jobs:
           CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
           CONFIG_CCACHE=y
           CONFIG_BUILD_LOG=y
-          CONFIG_GRUB_TIMEOUT="3"
-          CONFIG_GRUB_TITLE="ImmortalWrt"
+          CONFIG_GRUB_TIMEOUT=\"3\"
+          CONFIG_GRUB_TITLE=\"ImmortalWrt\"
           CONFIG_GRUB_IMAGES=y
           CONFIG_TARGET_ROOTFS_EXT4FS=y
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
-EOF
+          "
+          # Use printf to write the string to the .config file
+          printf "%s\n" "${CONFIG_CONTENT}" > .config
         fi
         make defconfig
         ./scripts/diffconfig.sh > diffconfig.txt
