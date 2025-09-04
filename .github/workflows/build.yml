@@ -1,4 +1,4 @@
-name: Build ImmortalWrt (Full Size)
+name: Build ImmortalWrt (24.10.Full Size)
 
 on:
   workflow_dispatch:
