@@ -10,7 +10,7 @@ on:
       router_ip:
         description: '请设置路由器的默认管理IP地址'
         required: true
-        default: '192.168.8.1'
+        default: '192.168.100.1'
 
 jobs:
   build:
@@ -28,12 +28,15 @@ jobs:
           # 将自定义IP地址写入网络配置文件
           echo "LAN_IP=${{ github.event.inputs.router_ip }}" > files/etc/config/custom_lan_ip
           
-          # 定义软件包列表 (已移除 passwall2)
+          # 定义软件包列表
+          # A package name prefixed with a hyphen (-) will be removed from the list.
           PACKAGES=" \
             luci \
             luci-ssl \
             ppp \
             luci-proto-ppp \
+            libustream-openssl \
+            -libustream-wolfssl \
             luci-app-openclash \
             luci-app-homeproxy \
             luci-app-passwall \
@@ -72,8 +75,8 @@ jobs:
             immortalwrt/imagebuilder:x86-64-openwrt-24.10.2 \
             /bin/bash -c '
               # 添加包含第三方软件包的软件源
-              echo "src/gz kenzok8_packages https://raw.githubusercontent.com/kenzok8/openwrt-packages/master" >> repositories.conf
-              echo "src/gz kenzok8_small https://raw.githubusercontent.com/kenzok8/small/master" >> repositories.conf
+              echo "src-git-full sirpdboy https://github.com/sirpdboy/sirpdboy-package" >> repositories.conf
+              echo "src-git-full openclash https://github.com/vernesong/OpenClash" >> repositories.conf
               
               # 更新软件包列表
               make info
