@@ -1,281 +1,122 @@
-name: Build ImmortalWrt (24.10.Full Size)
+name: Build ImmortalWrt with Image Builder
 
 on:
   workflow_dispatch:
+    inputs:
+      rootfs_size:
+        description: '请输入固件根分区的最终大小 (MB)'
+        required: true
+        default: '2048'
+      router_ip:
+        description: '请设置路由器的默认管理IP地址'
+        required: true
+        default: '192.168.100.1'
 
-env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-24.10
-  REPO_VERSION: v24.10.2
-  TZ: Asia/Shanghai
-  
 jobs:
   build:
     runs-on: ubuntu-22.04
-    
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      
-    - name: Initialization Environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        echo "=== 初始磁盘使用情况 ==="
-        df -h
-        echo "=== 开始系统清理 ==="
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo rm -rf /usr/local/.ghcup /usr/local/lib/android /usr/local/share/boost /usr/local/go
-        sudo rm -rf /opt/az /opt/microsoft /usr/share/swift /usr/local/share/chromium /usr/local/share/powershell
-        sudo systemctl stop docker
-        sudo docker system prune -a -f --volumes || true
-        sudo rm -rf /var/lib/docker /var/lib/containerd
-        sudo rm -rf /usr/local/share/vcpkg /usr/local/share/cmake* /usr/local/graalvm /usr/local/sqlpackage
-        sudo rm -rf /home/linuxbrew /usr/local/miniconda /usr/share/miniconda /usr/local/lib/heroku
-        sudo apt-get clean
-        sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-        sudo journalctl --vacuum-time=1d
-        sudo rm -rf /var/log/*.log /var/log/*/*.log
-        echo "=== 第一轮清理后磁盘使用情况 ==="
-        df -h
-        sudo -E apt-get -qq update
-        echo "=== 安装编译依赖 ==="
-        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
-        sudo -E apt-get -qq install rsync curl wget time file || echo "部分包安装失败，但可能不影响编译"
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
-        echo "CCACHE_DIR=/tmp/ccache" >> $GITHUB_ENV
-        echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
-        echo "=== 最终清理后磁盘使用情况 ==="
-        df -h
-        AVAIL_GB=$(df / | tail -1 | awk '{print int($4/1024/1024)}')
-        echo "可用空间: ${AVAIL_GB}GB"
-        if [ $AVAIL_GB -lt 15 ]; then
-          echo "⚠️  警告: 可用空间不足 15GB，可能影响编译"
-        else
-          echo "✅ 空间充足，可以开始编译"
-        fi
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Clone Source Code
-      run: |
-        echo "=== 开始克隆源代码 ==="
-        git clone $REPO_URL --depth 1 -b $REPO_BRANCH openwrt
-        cd openwrt
-        git fetch --depth 1 origin tag $REPO_VERSION
-        git checkout $REPO_VERSION
-        
-        # Add third-party package feeds for VPN/proxy apps
-        echo 'src-git-full kenzok8_packages https://github.com/kenzok8/openwrt-packages' >> feeds.conf.default
-        echo 'src-git-full kenzok8_small https://github.com/kenzok8/small' >> feeds.conf.default
-        
-        echo "=== 更新和安装软件源 ==="
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-        rm -rf feeds/*/tmp feeds/*/.git
-        echo "=== 源码准备完成，当前磁盘使用情况 ==="
-        df -h
-        echo "=== OpenWrt 源码目录大小 ==="
-        du -sh . 2>/dev/null || echo "无法计算目录大小"
-
-    - name: Load Custom Configuration
-      run: |
-        set -e
-        cd openwrt
-        if [ -f "../space-optimized.config" ]; then
-          echo "=== 使用自定义配置文件 ==="
-          cp ../space-optimized.config .config
-        else
-          echo "=== 使用内置配置 ==="
-          CONFIG_CONTENT="
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_DEVICE_generic=y
-          CONFIG_TARGET_KERNEL_PARTSIZE=32
-          CONFIG_TARGET_ROOTFS_PARTSIZE=2048
-          CONFIG_TARGET_IMAGES_PAD=y
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl=y
-          CONFIG_PACKAGE_luci-app-openclash=y
-          CONFIG_PACKAGE_luci-app-homeproxy=y
-          CONFIG_PACKAGE_luci-app-passwall=y
-          CONFIG_PACKAGE_luci-app-passwall2=y
-          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
-          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y
-          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y
-          CONFIG_PACKAGE_luci-app-dockerman=y
-          CONFIG_PACKAGE_luci-lib-docker=y
-          CONFIG_PACKAGE_docker=y
-          CONFIG_PACKAGE_dockerd=y
-          CONFIG_DOCKER_CGROUP_OPTIONS=y
-          CONFIG_DOCKER_NET_MACVLAN=y
-          CONFIG_DOCKER_STO_EXT4=y
-          CONFIG_KERNEL_CGROUP_DEVICE=y
-          CONFIG_KERNEL_CGROUP_FREEZER=y
-          CONFIG_KERNEL_NET_CLS_CGROUP=y
-          CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
-          CONFIG_KERNEL_FS_POSIX_ACL=y
-          CONFIG_PACKAGE_kmod-igb=y
-          CONFIG_PACKAGE_kmod-e1000e=y
-          CONFIG_PACKAGE_kmod-r8169=y
-          CONFIG_PACKAGE_kmod-r8125=y
-          CONFIG_PACKAGE_kmod-igc=y
-          CONFIG_PACKAGE_kmod-usb-core=y
-          CONFIG_PACKAGE_kmod-usb2=y
-          CONFIG_PACKAGE_kmod-usb3=y
-          CONFIG_PACKAGE_kmod-fs-ext4=y
-          CONFIG_PACKAGE_kmod-fs-vfat=y
-          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
-          CONFIG_CCACHE=y
-          CONFIG_BUILD_LOG=y
-          CONFIG_GRUB_TIMEOUT=\"3\"
-          CONFIG_GRUB_TITLE=\"ImmortalWrt\"
-          CONFIG_GRUB_IMAGES=y
-          CONFIG_TARGET_ROOTFS_EXT4FS=y
-          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+      - name: Prepare Build Environment
+        id: prepare
+        run: |
+          # 创建用于存放自定义文件和最终固件的目录
+          mkdir -p files/etc/config bin
+          
+          # 将自定义IP地址写入网络配置文件
+          # 开机时会由脚本自动设置
+          echo "LAN_IP=${{ github.event.inputs.router_ip }}" > files/etc/config/custom_lan_ip
+          
+          # 定义软件包列表
+          # 您可以在这里添加或删除软件包
+          PACKAGES=" \
+            luci \
+            luci-ssl \
+            luci-app-openclash \
+            luci-app-homeproxy \
+            luci-app-passwall \
+            luci-app-passwall2 \
+            luci-app-dockerman \
+            luci-lib-docker \
+            docker \
+            dockerd \
+            kmod-igb \
+            kmod-e1000e \
+            kmod-r8169 \
+            kmod-r8125 \
+            kmod-igc \
+            kmod-usb-core \
+            kmod-usb2 \
+            kmod-usb3 \
+            kmod-fs-ext4 \
+            kmod-fs-vfat \
+            luci-i18n-base-zh-cn \
+            luci-i18n-firewall-zh-cn \
+            luci-i18n-dockerman-zh-cn \
+            luci-i18n-passwall-zh-cn \
+            luci-i18n-passwall2-zh-cn \
+            luci-i18n-openclash-zh-cn \
+            luci-i18n-homeproxy-zh-cn \
           "
-          printf "%s\n" "${CONFIG_CONTENT}" > .config
-        fi
-        make defconfig
-        ./scripts/diffconfig.sh > diffconfig.txt
-        echo "=== 最终配置差异 ==="
-        cat diffconfig.txt
+          # 将软件包列表和根分区大小保存为输出，供后续步骤使用
+          echo "packages=$(echo $PACKAGES | tr -s ' ')" >> $GITHUB_OUTPUT
+          echo "rootfs_size=${{ github.event.inputs.rootfs_size }}" >> $GITHUB_OUTPUT
 
-    - name: Download Package
-      run: |
-        cd openwrt
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \; || true
-        find dl -size -1024c -exec rm -f {} \; || true
-        echo "=== 下载完成，磁盘使用情况 ==="
-        df -h
+      - name: Build Firmware with Image Builder
+        run: |
+          # 运行官方的Image Builder Docker容器
+          docker run --rm -i \
+            --user root \
+            -v ./bin:/home/build/immortalwrt/bin \
+            -v ./files:/home/build/immortalwrt/files \
+            immortalwrt/imagebuilder:x86-64-openwrt-24.10.2 \
+            /bin/bash -c '
+              # 添加包含第三方软件包的软件源
+              echo "src/gz kenzok8_packages https://raw.githubusercontent.com/kenzok8/openwrt-packages/master" >> repositories.conf
+              echo "src/gz kenzok8_small https://raw.githubusercontent.com/kenzok8/small/master" >> repositories.conf
+              
+              # 更新软件包列表
+              make info
+              
+              # 开始构建镜像
+              # PROFILE="generic": 适用于大多数x86-64设备的通用配置
+              # PACKAGES="${{ steps.prepare.outputs.packages }}": 我们在上一步定义的软件包列表
+              # FILES="files": 将我们创建的files目录中的所有文件打包进固件
+              # ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}": 我们手动输入的固件大小
+              make image PROFILE="generic" PACKAGES="${{ steps.prepare.outputs.packages }}" FILES="files" ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}"
+            '
 
-    - name: Compile Firmware
-      id: compile
-      run: |
-        set -e
-        cd openwrt
-        echo "=== 编译前环境检查 ==="
-        echo "可用CPU核心: $(nproc)"
-        echo "可用内存: $(free -h)"
-        echo "磁盘空间: $(df -h /)"
-        AVAIL_GB=$(df / | tail -1 | awk '{print int($4/1024/1024)}')
-        echo "剩余可用空间: ${AVAIL_GB}GB"
-        if [ $AVAIL_GB -lt 10 ]; then
-          echo "❌ 错误: 可用空间不足 10GB，无法继续编译"
-          exit 1
-        fi
-        export FORCE_UNSAFE_CONFIGURE=1
-        export CCACHE_DIR=/tmp/ccache
-        export CCACHE_MAXSIZE=2G
-        mkdir -p logs
-        echo "=== 开始编译固件 ==="
-        echo "编译开始时间: $(date)"
-        JOBS=$(($(nproc) < 4 ? $(nproc) : 4))
-        echo "使用 $JOBS 个并行任务进行编译"
-        make -j$JOBS V=s
-        echo "=== 编译完成 ==="
-        echo "编译结束时间: $(date)"
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Organize Files
-      id: organize
-      if: success()
-      run: |
-        set -e
-        echo "--- Listing build artifacts ---"
-        ls -R openwrt/bin/targets
-        FIRMWARE_PATH=$(find openwrt/bin/targets -type f -name "*.img.gz" | xargs dirname | head -n 1)
-        if [[ -z "$FIRMWARE_PATH" ]]; then
-          echo "::error::Could not find firmware directory."
-          exit 1
-        fi
-        echo "--- Found firmware in: $FIRMWARE_PATH ---"
-        echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload Firmware Directory
-      uses: actions/upload-artifact@v4
-      if: success() && steps.organize.outputs.status == 'success'
-      with:
-        name: immortalwrt-24.10.2-x86_64
-        path: ${{ env.FIRMWARE_PATH }}
-        retention-days: 7
-
-    - name: Generate Release Tag
-      id: tag
-      if: success() && steps.organize.outputs.status == 'success'
-      run: |
-        echo "release_tag=24.10.2-$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
-        echo "release_date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
-
-    - name: Upload Firmware To Release
-      uses: softprops/action-gh-release@v1
-      if: success() && steps.organize.outputs.status == 'success'
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: ImmortalWrt_24.10.2_${{ steps.tag.outputs.release_date }}
-        body: |
-          ## 🚀 ImmortalWrt 24.10.2 空间优化版
+      - name: Organize Files and Create Info
+        id: organize
+        run: |
+          # 查找生成的固件文件路径
+          FIRMWARE_PATH=$(find ./bin/targets/x86/64 -type f -name "*squashfs-combined-efi.img.gz" | head -n 1)
+          if [[ -z "$FIRMWARE_PATH" ]]; then
+            echo "::error::固件文件未找到, 构建失败!"
+            exit 1
+          fi
           
-          **构建时间**: ${{ steps.tag.outputs.release_date }}  
-          **目标平台**: x86_64  
-          **版本**: 24.10.2 最新稳定版
+          # 将固件路径设置为环境变量
+          echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
           
-          ### ✨ 主要功能
-          - ✅ **OpenClash** - Clash 代理工具
-          - ✅ **HomeProxy** - 透明代理
-          - ✅ **PassWall** - 科学上网工具
-          - ✅ **PassWall2** - 新一代科学上网工具 🆕
-          - ✅ **Docker + DockerMan** - 容器管理
-          - ✅ **完整网卡驱动** (包含2.5G网卡支持)
-          - ✅ **中文界面** - 完整本地化
-          
-          ### 🔧 系统配置
-          - 内核分区: 32MB
-          - 根分区: 2048MB (2GB 完整版)
-          - 引导方式: GRUB (支持UEFI)
-          
-          ### 📥 使用说明
-          1. 下载对应固件文件
-          2. 使用 Rufus/Etcher 写入U盘或硬盘
-          3. 默认IP: `192.168.1.1`
-          4. 用户名: `root`，密码: 空
-          
-          ### ⚡ 性能优化
-          - 启用编译缓存加速
-          - 优化磁盘占用
-          - 精简不必要组件
-          
-          > 此版本将直接生成 2GB 大小的完整固件，无需手动扩展分区。
-        files: "${{ env.FIRMWARE_PATH }}/*"
-        draft: false
-        prerelease: false
+          # 创建发布信息
+          cat > ./router-info.md <<EOF
+          ## 🚀 ImmortalWrt 24.10.2 (Image Builder 版)
 
-    - name: Delete Workflow Runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        token: ${{ github.token }}
-        repository: ${{ github.repository }}
-        retain_days: 3
-        keep_minimum_runs: 2
+          - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
+          - 👤 **用户名**: root
+          - 🔑 **密码**: 无
+          - 💾 **固件大小**: ${{ github.event.inputs.rootfs_size }} MB
+          EOF
 
-    - name: Remove Old Releases
-      uses: dev-drprasad/delete-older-releases@v0.3.4
-      if: success() && steps.organize.outputs.status == 'success'
-      with:
-        keep_latest: 5
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Firmware to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ImmortalWrt-ImageBuilder-$(date +%Y-%m-%d)
+          body_path: ./router-info.md
+          files: |
+            ${{ env.FIRMWARE_PATH }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          replace_latest: true
