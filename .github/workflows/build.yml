@@ -80,8 +80,8 @@ jobs:
               # 更新软件包列表
               make info
               
-              # 开始构建镜像
-              make image PROFILE="generic" PACKAGES="${{ steps.prepare.outputs.packages }}" FILES="files" ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}"
+              # 开始构建镜像，添加 V=s 参数以输出详细日志
+              make image V=s PROFILE="generic" PACKAGES="${{ steps.prepare.outputs.packages }}" FILES="files" ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}"
             '
 
       - name: Organize Files and Create Info
