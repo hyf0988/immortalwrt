@@ -28,7 +28,7 @@ jobs:
           # 将自定义IP地址写入网络配置文件
           echo "LAN_IP=${{ github.event.inputs.router_ip }}" > files/etc/config/custom_lan_ip
           
-          # 定义软件包列表
+          # 定义软件包列表 (已移除 passwall2)
           PACKAGES=" \
             luci \
             luci-ssl \
@@ -37,7 +37,6 @@ jobs:
             luci-app-openclash \
             luci-app-homeproxy \
             luci-app-passwall \
-            luci-app-passwall2 \
             luci-app-dockerman \
             luci-lib-docker \
             docker \
@@ -56,7 +55,6 @@ jobs:
             luci-i18n-firewall-zh-cn \
             luci-i18n-dockerman-zh-cn \
             luci-i18n-passwall-zh-cn \
-            luci-i18n-passwall2-zh-cn \
             luci-i18n-openclash-zh-cn \
             luci-i18n-homeproxy-zh-cn \
           "
