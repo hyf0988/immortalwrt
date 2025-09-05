@@ -26,14 +26,14 @@ jobs:
           mkdir -p files/etc/config bin
           
           # 将自定义IP地址写入网络配置文件
-          # 开机时会由脚本自动设置
           echo "LAN_IP=${{ github.event.inputs.router_ip }}" > files/etc/config/custom_lan_ip
           
           # 定义软件包列表
-          # 您可以在这里添加或删除软件包
           PACKAGES=" \
             luci \
             luci-ssl \
+            ppp \
+            luci-proto-ppp \
             luci-app-openclash \
             luci-app-homeproxy \
             luci-app-passwall \
@@ -81,10 +81,6 @@ jobs:
               make info
               
               # 开始构建镜像
-              # PROFILE="generic": 适用于大多数x86-64设备的通用配置
-              # PACKAGES="${{ steps.prepare.outputs.packages }}": 我们在上一步定义的软件包列表
-              # FILES="files": 将我们创建的files目录中的所有文件打包进固件
-              # ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}": 我们手动输入的固件大小
               make image PROFILE="generic" PACKAGES="${{ steps.prepare.outputs.packages }}" FILES="files" ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}"
             '
 
