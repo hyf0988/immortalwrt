@@ -35,8 +35,11 @@ jobs:
             luci-ssl \
             ppp \
             luci-proto-ppp \
+            ca-bundle \
+            libopenssl \
             libustream-openssl \
             -libustream-wolfssl \
+            -libustream-mbedtls \
             luci-app-openclash \
             luci-app-homeproxy \
             luci-app-passwall \
@@ -74,14 +77,17 @@ jobs:
             -v ./files:/home/build/immortalwrt/files \
             immortalwrt/imagebuilder:x86-64-openwrt-24.10.2 \
             /bin/bash -c '
-              # ✅ FIX: 使用 Image Builder 正确的 src/gz 格式和可用的软件源地址
+              # ✅ FIX 1: Add DNS host entry to fix network download errors
+              echo "185.199.108.133 raw.githubusercontent.com" >> /etc/hosts
+              
+              # 添加包含第三方软件包的软件源
               echo "src/gz openclash_core https://raw.githubusercontent.com/vernesong/OpenClash/core/master/dev" >> repositories.conf
               echo "src/gz passwall_packages https://raw.githubusercontent.com/xiaorouji/openwrt-passwall-packages/main/packages" >> repositories.conf
               
               # 更新软件包列表
               make info
               
-              # 开始构建镜像，添加 V=s 参数以输出详细日志
+              # 开始构建镜像
               make image V=s PROFILE="generic" PACKAGES="${{ steps.prepare.outputs.packages }}" FILES="files" ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}"
             '
 
