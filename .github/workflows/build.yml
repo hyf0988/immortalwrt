@@ -1,4 +1,4 @@
-name: Build ImmortalWrt23.05 Stable with Image Builder
+name: Build ImmortalWrt (Compile From Source)
 
 on:
   workflow_dispatch:
@@ -19,85 +19,108 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare Build Environment
-        id: prepare
+      - name: Maximize Build Space
         run: |
-          mkdir -p files/etc/config bin
-          echo "LAN_IP=${{ github.event.inputs.router_ip }}" > files/etc/config/custom_lan_ip
-          
-          # Define package list
-          PACKAGES=" \
-            luci \
-            luci-ssl-openssl \
-            libustream-openssl \
-            -luci-ssl \
-            -libustream-wolfssl \
-            -libustream-mbedtls \
-            ppp \
-            luci-proto-ppp \
-            ca-bundle \
-            libopenssl \
-            luci-app-openclash \
-            luci-app-homeproxy \
-            luci-app-passwall \
-            luci-app-dockerman \
-            luci-lib-docker \
-            docker \
-            dockerd \
-            kmod-igb \
-            kmod-e1000e \
-            kmod-r8169 \
-            kmod-r8125 \
-            kmod-igc \
-            kmod-usb-core \
-            kmod-usb2 \
-            kmod-usb3 \
-            kmod-fs-ext4 \
-            kmod-fs-vfat \
-            luci-i18n-base-zh-cn \
-            luci-i18n-firewall-zh-cn \
-            luci-i18n-dockerman-zh-cn \
-            luci-i18n-passwall-zh-cn \
-            luci-i18n-openclash-zh-cn \
-            luci-i18n-homeproxy-zh-cn \
-          "
-          echo "packages=$(echo $PACKAGES | tr -s ' ')" >> $GITHUB_OUTPUT
-          echo "rootfs_size=${{ github.event.inputs.rootfs_size }}" >> $GITHUB_OUTPUT
+          echo "Cleaning up runner..."
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /opt/hostedtoolcache
+          sudo docker image prune -a -f
+          df -h
 
-      - name: Build Firmware with Image Builder
+      - name: Install Build Dependencies
         run: |
-          # ✅ FIX: Use the stable 23.05.3 Image Builder
-          docker run --rm -i \
-            --user root \
-            -v ./bin:/home/build/immortalwrt/bin \
-            -v ./files:/home/build/immortalwrt/files \
-            immortalwrt/imagebuilder:x86-64-openwrt-23.05.3 \
-            /bin/bash -c '
-              echo "185.199.108.133 raw.githubusercontent.com" >> /etc/hosts
-              
-              # Use the stable 23.05 package feed
-              echo "src/gz sbwml_packages https://raw.githubusercontent.com/sbwml/openwrt_pkgs/23.05/packages/x86_64" >> repositories.conf
-              
-              # Update package lists
-              make info
-              
-              # Build image
-              make image V=s PROFILE="generic" PACKAGES="${{ steps.prepare.outputs.packages }}" FILES="files" ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}"
-            '
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison g++ gawk gcc-multilib g++-multilib \
+          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
+
+      - name: Clone ImmortalWrt Source
+        run: |
+          git clone https://github.com/immortalwrt/immortalwrt.git -b openwrt-23.05 openwrt
+          cd openwrt
+          git checkout v23.05.3
+
+      - name: Add Third-Party Feeds
+        run: |
+          cd openwrt
+          # Add the source code repositories for third-party packages
+          echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+          echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
+          echo 'src-git homeproxy https://github.com/immortalwrt-collections/homeproxy.git' >> feeds.conf.default
+          
+          # Update and install all feed packages
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Generate Build Configuration
+        run: |
+          cd openwrt
+          # Create the .config file with your package selections
+          cat > .config << EOF
+          CONFIG_TARGET_x86=y
+          CONFIG_TARGET_x86_64=y
+          CONFIG_TARGET_x86_64_DEVICE_generic=y
+          # --- Force full-size image instead of minimal ---
+          CONFIG_TARGET_IMAGES_PAD=y
+          CONFIG_TARGET_ROOTFS_PARTSIZE=${{ github.event.inputs.rootfs_size }}
+          # --- Disable ccache to save disk space ---
+          CONFIG_ccache=n
+          # --- Essential Packages ---
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl-openssl=y
+          CONFIG_PACKAGE_ca-bundle=y
+          # --- Your Selected Apps ---
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-app-homeproxy=y
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-app-dockerman=y
+          CONFIG_PACKAGE_docker=y
+          CONFIG_PACKAGE_dockerd=y
+          # --- Drivers and Filesystems ---
+          CONFIG_PACKAGE_kmod-igb=y
+          CONFIG_PACKAGE_kmod-e1000e=y
+          CONFIG_PACKAGE_kmod-r8169=y
+          CONFIG_PACKAGE_kmod-r8125=y
+          CONFIG_PACKAGE_kmod-igc=y
+          CONFIG_PACKAGE_kmod-usb-core=y
+          CONFIG_PACKAGE_kmod-usb2=y
+          CONFIG_PACKAGE_kmod-usb3=y
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          # --- Chinese Language Packs ---
+          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
+          EOF
+
+          # Set custom IP address
+          echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
+          echo "CONFIG_TARGET_CUSTOM_IP_ADDRESS='${{ github.event.inputs.router_ip }}'" >> .config
+          
+          # Finalize configuration
+          make defconfig
+
+      - name: Compile Firmware
+        id: compile
+        run: |
+          cd openwrt
+          # Use -j1 to compile on a single core for maximum stability and low memory usage
+          # This will be slow but reliable
+          make -j1 V=s
 
       - name: Organize Files and Create Info
         id: organize
+        if: success()
         run: |
-          FIRMWARE_PATH=$(find ./bin/targets/x86/64 -type f -name "*squashfs-combined-efi.img.gz" | head -n 1)
+          FIRMWARE_PATH=$(find ./openwrt/bin/targets/x86/64 -type f -name "*squashfs-combined-efi.img.gz" | head -n 1)
           if [[ -z "$FIRMWARE_PATH" ]]; then
             echo "::error::Firmware file not found, build failed!"
             exit 1
           fi
-          
           echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
           
           cat > ./router-info.md <<EOF
-          ## 🚀 ImmortalWrt 23.05.3 Stable (Image Builder)
+          ## 🚀 ImmortalWrt 23.05.3 Stable (Source Build)
 
           - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
           - 👤 **用户名**: root
@@ -107,8 +130,9 @@ jobs:
 
       - name: Upload Firmware to Release
         uses: softprops/action-gh-release@v1
+        if: success()
         with:
-          tag_name: ImmortalWrt-23.05.3-Stable-$(date +%Y-%m-%d)
+          tag_name: ImmortalWrt-23.05.3-Source-Build-$(date +%Y-%m-%d)
           body_path: ./router-info.md
           files: |
             ${{ env.FIRMWARE_PATH }}
