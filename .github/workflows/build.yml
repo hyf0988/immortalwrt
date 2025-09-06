@@ -1,4 +1,4 @@
-name: Build ImmortalWrt with Image Builder
+name: Build ImmortalWrt Stable with Image Builder
 
 on:
   workflow_dispatch:
@@ -22,13 +22,10 @@ jobs:
       - name: Prepare Build Environment
         id: prepare
         run: |
-          # 创建用于存放自定义文件和最终固件的目录
           mkdir -p files/etc/config bin
-          
-          # 将自定义IP地址写入网络配置文件
           echo "LAN_IP=${{ github.event.inputs.router_ip }}" > files/etc/config/custom_lan_ip
           
-          # 定义软件包列表
+          # Define package list
           PACKAGES=" \
             luci \
             luci-ssl-openssl \
@@ -64,48 +61,43 @@ jobs:
             luci-i18n-openclash-zh-cn \
             luci-i18n-homeproxy-zh-cn \
           "
-          # 将软件包列表和根分区大小保存为输出，供后续步骤使用
           echo "packages=$(echo $PACKAGES | tr -s ' ')" >> $GITHUB_OUTPUT
           echo "rootfs_size=${{ github.event.inputs.rootfs_size }}" >> $GITHUB_OUTPUT
 
       - name: Build Firmware with Image Builder
         run: |
-          # 运行官方的Image Builder Docker容器
+          # ✅ FIX: Use the stable 23.05.3 Image Builder
           docker run --rm -i \
             --user root \
             -v ./bin:/home/build/immortalwrt/bin \
             -v ./files:/home/build/immortalwrt/files \
-            immortalwrt/imagebuilder:x86-64-openwrt-24.10.2 \
+            immortalwrt/imagebuilder:x86-64-openwrt-23.05.3 \
             /bin/bash -c '
-              # 添加DNS host条目以修复网络下载错误
               echo "185.199.108.133 raw.githubusercontent.com" >> /etc/hosts
               
-              # ✅ FIX: Replace with a single, stable, and active community package feed
+              # Use the stable 23.05 package feed
               echo "src/gz sbwml_packages https://raw.githubusercontent.com/sbwml/openwrt_pkgs/23.05/packages/x86_64" >> repositories.conf
               
-              # 更新软件包列表
+              # Update package lists
               make info
               
-              # 开始构建镜像
+              # Build image
               make image V=s PROFILE="generic" PACKAGES="${{ steps.prepare.outputs.packages }}" FILES="files" ROOTFS_SIZE="${{ steps.prepare.outputs.rootfs_size }}"
             '
 
       - name: Organize Files and Create Info
         id: organize
         run: |
-          # 查找生成的固件文件路径
           FIRMWARE_PATH=$(find ./bin/targets/x86/64 -type f -name "*squashfs-combined-efi.img.gz" | head -n 1)
           if [[ -z "$FIRMWARE_PATH" ]]; then
-            echo "::error::固件文件未找到, 构建失败!"
+            echo "::error::Firmware file not found, build failed!"
             exit 1
           fi
           
-          # 将固件路径设置为环境变量
           echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
           
-          # 创建发布信息
           cat > ./router-info.md <<EOF
-          ## 🚀 ImmortalWrt 24.10.2 (Image Builder 版)
+          ## 🚀 ImmortalWrt 23.05.3 Stable (Image Builder)
 
           - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
           - 👤 **用户名**: root
@@ -116,7 +108,7 @@ jobs:
       - name: Upload Firmware to Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ImmortalWrt-ImageBuilder-$(date +%Y-%m-%d)
+          tag_name: ImmortalWrt-23.05.3-Stable-$(date +%Y-%m-%d)
           body_path: ./router-info.md
           files: |
             ${{ env.FIRMWARE_PATH }}
