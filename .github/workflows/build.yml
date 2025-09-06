@@ -29,9 +29,14 @@ jobs:
           echo "LAN_IP=${{ github.event.inputs.router_ip }}" > files/etc/config/custom_lan_ip
           
           # 定义软件包列表
+          # A package name prefixed with a hyphen (-) will be removed from the list.
           PACKAGES=" \
             luci \
             luci-ssl-openssl \
+            libustream-openssl \
+            -luci-ssl \
+            -libustream-wolfssl \
+            -libustream-mbedtls \
             ppp \
             luci-proto-ppp \
             ca-bundle \
@@ -76,8 +81,9 @@ jobs:
               # 添加DNS host条目以修复网络下载错误
               echo "185.199.108.133 raw.githubusercontent.com" >> /etc/hosts
               
-              # ✅ FIX 1: 使用当前可用的社区软件包镜像源
-              echo "src/gz custom_packages https://op.dlll.love/immortalwrt/releases/24.10-SNAPSHOT/packages/x86_64/packages" >> repositories.conf
+              # ✅ FIX: 使用软件作者官方的、当前可用的软件源地址
+              echo "src/gz openclash_core https://raw.githubusercontent.com/vernesong/OpenClash/core/master/dev" >> repositories.conf
+              echo "src/gz passwall_packages https://raw.githubusercontent.com/xiaorouji/openwrt-passwall-packages/main/packages" >> repositories.conf
               
               # 更新软件包列表
               make info
