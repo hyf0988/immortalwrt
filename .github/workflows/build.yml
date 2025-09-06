@@ -1,4 +1,4 @@
-name: Build ImmortalWrt Stable with Image Builder
+name: Build ImmortalWrt23.05 Stable with Image Builder
 
 on:
   workflow_dispatch:
