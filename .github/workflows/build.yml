@@ -6,7 +6,7 @@ on:
       firmware_version:
         description: 'ImmortalWrt 版本'
         required: true
-        default: 'v23.05.4' # 建议使用最新的稳定版以获得最佳的软件源兼容性
+        default: 'v24.10.2' # 建议使用最新的稳定版以获得最佳的软件源兼容性
         type: choice
           - 'v23.05.4'
           - 'v24.10.2'
