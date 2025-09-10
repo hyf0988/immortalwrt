@@ -6,18 +6,17 @@ on:
       firmware_version:
         description: 'ImmortalWrt 版本'
         required: true
-        default: 'v24.10.2'
+        default: 'v23.05.4' # 建议使用最新的稳定版以获得最佳的软件源兼容性
         type: choice
-        options:
-          - 'v24.10.2'
           - 'v23.05.4'
+          - 'v24.10.2'
       include_docker:
         description: '包含 Docker 支持'
         required: true
         default: true
         type: boolean
       include_passwall2:
-        description: '包含 PassWall2'
+        description: '包含 PassWall2 等代理工具'
         required: true
         default: true
         type: boolean
@@ -45,45 +44,17 @@ jobs:
     - name: Initialize Build Environment
       run: |
         echo "=== 初始化构建环境 ==="
-        echo "构建时间: $(date)"
-        echo "系统信息: $(uname -a)"
-        echo "可用CPU: $(nproc)"
-        echo "内存信息: $(free -h)"
-        echo "磁盘信息: $(df -h /)"
+        df -h /
 
     - name: Free Up Disk Space
       run: |
         echo "=== 清理磁盘空间 ==="
-        # 删除不需要的软件和文件
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo rm -rf /usr/local/.ghcup /usr/local/lib/android /usr/local/share/boost /usr/local/go
-        sudo rm -rf /opt/az /opt/microsoft /usr/share/swift /usr/local/share/chromium
-        sudo rm -rf /usr/local/share/powershell /usr/local/share/vcpkg /usr/local/graalvm
-        sudo rm -rf /home/linuxbrew /usr/local/miniconda /usr/share/miniconda
-        
-        # 清理 Docker
-        sudo systemctl stop docker || true
-        sudo docker system prune -a -f --volumes || true
-        sudo rm -rf /var/lib/docker /var/lib/containerd || true
-        
-        # 清理 APT 缓存
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/local/go /opt/hostedtoolcache
+        sudo docker image prune -a -f
         sudo apt-get clean
         sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-        
-        # 清理日志
-        sudo journalctl --vacuum-time=1d || true
-        sudo rm -rf /var/log/*.log /var/log/*/*.log || true
-        
         echo "=== 清理后磁盘状态 ==="
         df -h /
-        
-        # 检查可用空间
-        AVAIL_GB=$(df / | tail -1 | awk '{print int($4/1024/1024)}')
-        echo "可用空间: ${AVAIL_GB}GB"
-        if [ $AVAIL_GB -lt 20 ]; then
-          echo "错误: 可用空间不足 20GB，无法进行编译"
-          exit 1
-        fi
 
     - name: Install Dependencies
       run: |
@@ -93,13 +64,7 @@ jobs:
           build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
           gettext git libncurses5-dev libncursesw5-dev libssl-dev python3 \
           python3-dev python3-setuptools rsync swig unzip zlib1g-dev file wget \
-          curl time xsltproc libelf-dev
-        
-        # 安装可选依赖
-        sudo apt-get install -y ccache fastjar ecj subversion || true
-        
-        echo "=== 依赖安装完成 ==="
-        which gcc g++ python3 git make
+          curl time xsltproc libelf-dev ccache
 
     - name: Set Build Variables
       run: |
@@ -114,12 +79,7 @@ jobs:
             echo "REPO_VERSION=v23.05.4" >> $GITHUB_ENV
             echo "OPENWRT_VERSION=23.05" >> $GITHUB_ENV
             ;;
-          *)
-            echo "不支持的版本"
-            exit 1
-            ;;
         esac
-        
         echo "REPO_URL=https://github.com/immortalwrt/immortalwrt" >> $GITHUB_ENV
         echo "BUILD_DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
         echo "FIRMWARE_SIZE=${{ github.event.inputs.rootfs_size }}" >> $GITHUB_ENV
@@ -128,33 +88,26 @@ jobs:
     - name: Clone Source Code
       run: |
         echo "=== 克隆 ImmortalWrt 源码 ==="
-        echo "仓库: $REPO_URL"
-        echo "分支: $REPO_BRANCH"
-        echo "版本: $REPO_VERSION"
-        
         git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
         cd openwrt
         git fetch --depth 1 origin tag $REPO_VERSION
         git checkout $REPO_VERSION
-        
-        echo "=== 当前代码信息 ==="
-        echo "当前分支: $(git branch --show-current)"
-        echo "当前提交: $(git rev-parse HEAD)"
-        echo "提交信息: $(git log -1 --pretty=format:'%s')"
 
     - name: Update and Install Feeds
       run: |
-        echo "=== 更新和安装软件源 ==="
+        echo "=== 添加并安装第三方软件源 ==="
         cd openwrt
+        
+        # ✅ FIX: 添加包含 Passwall, OpenClash 等插件的第三方软件源
+        echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+        echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
+        echo 'src-git homeproxy https://github.com/immortalwrt-collections/homeproxy.git' >> feeds.conf.default
         
         # 更新软件源
         ./scripts/feeds update -a
         
         # 安装软件源
         ./scripts/feeds install -a
-        
-        echo "=== 软件源信息 ==="
-        ./scripts/feeds list | head -20
 
     - name: Generate Configuration
       run: |
@@ -162,7 +115,7 @@ jobs:
         cd openwrt
         
         # 创建配置文件
-        cat > .config << 'CONFIG_EOF'
+        cat > .config << EOF
         # Target Platform
         CONFIG_TARGET_x86=y
         CONFIG_TARGET_x86_64=y
@@ -171,112 +124,48 @@ jobs:
         # Target Images
         CONFIG_TARGET_KERNEL_PARTSIZE=${{ env.KERNEL_SIZE }}
         CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.FIRMWARE_SIZE }}
+        CONFIG_TARGET_IMAGES_PAD=y
         CONFIG_GRUB_TIMEOUT="3"
         CONFIG_GRUB_TITLE="ImmortalWrt"
         CONFIG_GRUB_IMAGES=y
         CONFIG_GRUB_EFI_IMAGES=y
         CONFIG_TARGET_ROOTFS_EXT4FS=y
         CONFIG_TARGET_ROOTFS_SQUASHFS=y
-        CONFIG_TARGET_IMAGES_GZIP=y
         
         # Base System
         CONFIG_PACKAGE_luci=y
-        CONFIG_PACKAGE_luci-ssl=y
-        CONFIG_PACKAGE_luci-theme-bootstrap=y
+        CONFIG_PACKAGE_luci-ssl-openssl=y
         
-        # Network Protocols
-        CONFIG_PACKAGE_luci-proto-ipv6=y
-        CONFIG_PACKAGE_luci-proto-ppp=y
-        CONFIG_PACKAGE_6in4=y
-        CONFIG_PACKAGE_ppp-mod-pppoe=y
-        
-        # Firewall
-        CONFIG_PACKAGE_luci-app-firewall=y
-        CONFIG_PACKAGE_iptables-mod-extra=y
-        CONFIG_PACKAGE_iptables-mod-filter=y
-        CONFIG_PACKAGE_ip6tables-extra=y
-        
-        # Essential Tools
-        CONFIG_PACKAGE_wget-ssl=y
-        CONFIG_PACKAGE_curl=y
-        CONFIG_PACKAGE_ca-certificates=y
-        CONFIG_PACKAGE_ethtool=y
-        CONFIG_PACKAGE_lm-sensors=y
-        
-        # Network Drivers - Intel
-        CONFIG_PACKAGE_kmod-igb=y              # Intel Gigabit
-        CONFIG_PACKAGE_kmod-e1000e=y           # Intel PCIe Gigabit
-        CONFIG_PACKAGE_kmod-igc=y              # Intel 2.5G (I225/I226)
-        CONFIG_PACKAGE_kmod-ixgbe=y            # Intel 10G
-        CONFIG_PACKAGE_kmod-i40e=y             # Intel 40G
-        
-        # Network Drivers - Realtek
-        CONFIG_PACKAGE_kmod-r8169=y            # Realtek Gigabit
-        CONFIG_PACKAGE_kmod-r8125=y            # Realtek 2.5G
-        CONFIG_PACKAGE_kmod-r8168=y            # Realtek Gigabit
-        
-        # Network Drivers - Others
-        CONFIG_PACKAGE_kmod-tg3=y              # Broadcom
-        CONFIG_PACKAGE_kmod-via-velocity=y     # VIA
-        CONFIG_PACKAGE_kmod-tulip=y            # DEC Tulip
+        # Drivers
+        CONFIG_PACKAGE_kmod-igc=y
+        CONFIG_PACKAGE_kmod-r8125=y
+        CONFIG_PACKAGE_kmod-igb=y
+        CONFIG_PACKAGE_kmod-e1000e=y
+        CONFIG_PACKAGE_kmod-r8169=y
         
         # USB and Storage
         CONFIG_PACKAGE_kmod-usb-core=y
         CONFIG_PACKAGE_kmod-usb2=y
         CONFIG_PACKAGE_kmod-usb3=y
-        CONFIG_PACKAGE_kmod-usb-storage=y
         CONFIG_PACKAGE_kmod-fs-ext4=y
-        CONFIG_PACKAGE_kmod-fs-vfat=y
-        CONFIG_PACKAGE_kmod-fs-ntfs3=y
-        CONFIG_PACKAGE_ntfs3-mount=y
-        
-        # Block and Filesystem Tools
-        CONFIG_PACKAGE_fdisk=y
-        CONFIG_PACKAGE_e2fsprogs=y
-        CONFIG_PACKAGE_mkf2fs=y
-        CONFIG_PACKAGE_partx-utils=y
-        CONFIG_PACKAGE_lsblk=y
-        
-        # Sound Support
-        CONFIG_PACKAGE_kmod-sound-hda-intel=y
-        CONFIG_PACKAGE_kmod-sound-hda-codec-realtek=y
-        CONFIG_PACKAGE_kmod-sound-hda-codec-hdmi=y
-        CONFIG_PACKAGE_alsa-utils=y
-        
-        # Compilation Options
-        CONFIG_CCACHE=y
-        CONFIG_BUILD_LOG=y
         
         # Language Support
         CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
-        CONFIG_EOF
+        EOF
         
-        # 根据用户输入添加 Docker 支持
         if [ "${{ github.event.inputs.include_docker }}" == "true" ]; then
           cat >> .config << 'DOCKER_EOF'
         
         # Docker Support
         CONFIG_PACKAGE_luci-app-dockerman=y
-        CONFIG_PACKAGE_luci-lib-docker=y
         CONFIG_PACKAGE_docker=y
         CONFIG_PACKAGE_dockerd=y
-        CONFIG_DOCKER_CGROUP_OPTIONS=y
-        CONFIG_DOCKER_NET_MACVLAN=y
-        CONFIG_DOCKER_STO_EXT4=y
-        CONFIG_KERNEL_CGROUP_DEVICE=y
-        CONFIG_KERNEL_CGROUP_FREEZER=y
-        CONFIG_KERNEL_NET_CLS_CGROUP=y
-        CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
-        CONFIG_KERNEL_FS_POSIX_ACL=y
-        CONFIG_KERNEL_MEMCG_SWAP=y
-        CONFIG_KERNEL_MEMCG_SWAP_ENABLED=y
         CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
         DOCKER_EOF
         fi
         
-        # 根据用户输入添加代理工具
         if [ "${{ github.event.inputs.include_passwall2 }}" == "true" ]; then
           cat >> .config << 'PROXY_EOF'
         
@@ -285,22 +174,6 @@ jobs:
         CONFIG_PACKAGE_luci-app-homeproxy=y
         CONFIG_PACKAGE_luci-app-passwall=y
         CONFIG_PACKAGE_luci-app-passwall2=y
-        
-        # PassWall Dependencies
-        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
-        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y
-        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client=y
-        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=y
-        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs=y
-        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=y
-        
-        # PassWall2 Dependencies
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y
-        CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client=y
-        
-        # Language Support
         CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
@@ -308,99 +181,39 @@ jobs:
         PROXY_EOF
         fi
         
-        # 应用配置
         make defconfig
-        
-        echo "=== 配置差异 ==="
-        ./scripts/diffconfig.sh | tee diffconfig.txt
-        
-        echo "=== 配置验证 ==="
-        grep -E "CONFIG_TARGET_|CONFIG_PACKAGE_luci|CONFIG_PACKAGE_kmod-igc" .config | head -20
 
     - name: Download Dependencies
       run: |
         echo "=== 下载编译依赖 ==="
         cd openwrt
-        
         make download -j$(nproc)
-        
-        # 检查下载状态
-        echo "=== 检查下载失败的文件 ==="
-        find dl -size -1024c -exec ls -l {} \; 2>/dev/null || true
-        find dl -size -1024c -delete 2>/dev/null || true
-        
-        echo "=== 下载完成，磁盘状态 ==="
-        df -h /
 
     - name: Compile Firmware
       run: |
-        echo "=== 开始编译固件 ==="
+        echo "=== 开始编译固件 (过程会很长) ==="
         cd openwrt
-        
-        # 编译环境信息
-        echo "编译开始时间: $(date)"
-        echo "可用CPU核心: $(nproc)"
-        echo "内存状态: $(free -h)"
-        echo "磁盘状态: $(df -h /)"
-        
-        # 设置编译环境变量
-        export FORCE_UNSAFE_CONFIGURE=1
-        export CCACHE_DIR=/tmp/.ccache
-        export CCACHE_MAXSIZE=2G
-        
-        # 开始编译
-        JOBS=$(($(nproc) < 4 ? $(nproc) : 4))
-        echo "使用 $JOBS 个线程进行编译"
-        
-        make -j$JOBS V=s 2>&1 | tee build.log || {
-          echo "=== 多线程编译失败，开始单线程编译 ==="
-          echo "单线程编译时间: $(date)"
-          make -j1 V=s 2>&1 | tee build-single.log
-        }
-        
-        echo "=== 编译完成 ==="
-        echo "编译结束时间: $(date)"
+        make -j1 V=s
 
     - name: Check Build Results
       run: |
         echo "=== 检查编译结果 ==="
-        cd openwrt
-        
-        echo "=== 编译后磁盘状态 ==="
-        df -h /
-        
-        echo "=== 固件文件 ==="
-        find bin/targets/ -name "*.img*" -o -name "*.bin" 2>/dev/null | head -10
-        
-        echo "=== 固件大小 ==="
-        ls -lh bin/targets/x86/64/ 2>/dev/null || echo "未找到固件文件"
-        
-        # 检查必要文件是否存在
-        if [ ! -d "bin/targets/x86/64" ]; then
-          echo "错误: 编译失败，未找到目标文件"
+        if [ ! -d "openwrt/bin/targets/x86/64" ] || [ -z "$(ls -A openwrt/bin/targets/x86/64)" ]; then
+          echo "错误: 编译失败，未找到固件文件"
           exit 1
+        else
+          echo "编译成功，固件文件已生成。"
+          ls -lh openwrt/bin/targets/x86/64/
         fi
 
     - name: Organize Firmware Files
+      id: organize
       run: |
-        echo "=== 整理固件文件 ==="
-        cd openwrt/bin/targets/x86/64
-        
-        # 删除不需要的包文件夹
-        rm -rf packages
-        
-        # 生成文件信息
-        ls -la > file_list.txt
-        
-        # 设置环境变量
-        echo "FIRMWARE_PATH=$(pwd)" >> $GITHUB_ENV
+        FIRMWARE_PATH=$(find openwrt/bin/targets/x86/64 -type d)
+        echo "FIRMWARE_PATH=${FIRMWARE_PATH}" >> $GITHUB_ENV
         echo "BUILD_SUCCESS=true" >> $GITHUB_ENV
-        
-        echo "=== 固件文件列表 ==="
-        cat file_list.txt
 
     - name: Upload Build Artifacts
-      if: env.BUILD_SUCCESS == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: ImmortalWrt-${{ env.OPENWRT_VERSION }}-x86_64-${{ env.BUILD_DATE }}
@@ -408,105 +221,18 @@ jobs:
         retention-days: 7
 
     - name: Generate Release Info
-      if: env.BUILD_SUCCESS == 'true'
       run: |
         echo "RELEASE_TAG=${{ env.OPENWRT_VERSION }}-${{ env.BUILD_DATE }}-$(date +'%H%M')" >> $GITHUB_ENV
-        
-        # 生成发布说明
-        cat > release_notes.md << 'RELEASE_EOF'
-        ## ImmortalWrt ${{ env.OPENWRT_VERSION }} x86_64 固件
-        
-        **构建时间**: ${{ env.BUILD_DATE }}  
-        **版本**: ${{ env.REPO_VERSION }}  
-        **平台**: x86_64 Generic
-        
-        ### 主要特性
-        - ✅ **基于 ImmortalWrt ${{ env.OPENWRT_VERSION }}** - 最新稳定版
-        - ✅ **完整网卡驱动支持** - 包含 Intel 2.5G (I225/I226) 网卡
-        - ✅ **中文界面** - 完整本地化支持
-        - ✅ **GRUB 引导** - 支持 UEFI 和传统 BIOS
-        RELEASE_EOF
-        
-        if [ "${{ github.event.inputs.include_docker }}" == "true" ]; then
-          echo "        - ✅ **Docker 支持** - 包含 DockerMan 管理界面" >> release_notes.md
-        fi
-        
-        if [ "${{ github.event.inputs.include_passwall2 }}" == "true" ]; then
-          cat >> release_notes.md << 'PROXY_INFO_EOF'
-        - ✅ **科学上网工具** - OpenClash + HomeProxy + PassWall + PassWall2
-        PROXY_INFO_EOF
-        fi
-        
-        cat >> release_notes.md << 'RELEASE_END_EOF'
-        
-        ### 系统配置
-        - **内核分区**: ${{ env.KERNEL_SIZE }}MB
-        - **根分区**: ${{ env.FIRMWARE_SIZE }}MB
-        - **文件系统**: SquashFS + EXT4
-        - **引导方式**: GRUB (UEFI + Legacy)
-        
-        ### 网卡驱动支持
-        - Intel Gigabit (igb, e1000e)
-        - Intel 2.5G (igc) - I225/I226
-        - Intel 10G (ixgbe)
-        - Realtek Gigabit (r8169, r8168)
-        - Realtek 2.5G (r8125)
-        - Broadcom (tg3)
-        
-        ### 安装说明
-        1. 下载对应的 `.img.gz` 固件文件
-        2. 解压缩后使用 dd 命令或 Rufus/Etcher 工具写入
-        3. 默认IP: `192.168.1.1`
-        4. 默认用户: `root` (无密码)
-        
-        ### 注意事项
-        - 首次启动可能需要等待 2-3 分钟
-        - 建议使用有线连接进行初始配置
-        - 支持在线升级和保留配置
-        
-        ---
-        **构建于**: GitHub Actions  
-        **编译器**: GCC $(gcc --version | head -1)
-        RELEASE_END_EOF
+        cat > release_notes.md << EOF
+        ## ImmortalWrt ${{ env.OPENWRT_VERSION }} x86_64
+        **构建时间**: ${{ env.BUILD_DATE }}
+        EOF
 
     - name: Create Release
-      if: env.BUILD_SUCCESS == 'true'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ env.RELEASE_TAG }}
         name: ImmortalWrt ${{ env.OPENWRT_VERSION }} x86_64 - ${{ env.BUILD_DATE }}
         body_path: release_notes.md
         files: ${{ env.FIRMWARE_PATH }}/*
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Cleanup Old Releases
-      if: env.BUILD_SUCCESS == 'true'
-      uses: dev-drprasad/delete-older-releases@v0.3.4
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Build Summary
-      if: always()
-      run: |
-        echo "=== 构建总结 ==="
-        echo "构建状态: ${{ job.status }}"
-        echo "构建时间: $(date)"
-        echo "版本: ${{ env.REPO_VERSION }}"
-        echo "Docker支持: ${{ github.event.inputs.include_docker }}"
-        echo "PassWall2支持: ${{ github.event.inputs.include_passwall2 }}"
-        echo "固件大小: ${{ env.FIRMWARE_SIZE }}MB"
-        
-        if [ "${{ job.status }}" == "success" ]; then
-          echo "✅ 构建成功完成"
-          echo "📦 固件已上传到 Artifacts"
-          echo "🚀 Release 已自动创建"
-        else
-          echo "❌ 构建失败"
-          echo "请检查构建日志获取详细信息"
-        fi
+        token: ${{ secrets.GITHUB_TOKEN }}
