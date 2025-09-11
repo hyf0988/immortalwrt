@@ -1,4 +1,4 @@
-name: Build ImmortalWrt (Compile From Source)
+name: Build ImmortalWrt (Compile From Source v24.10)
 
 on:
   workflow_dispatch:
@@ -44,7 +44,6 @@ jobs:
           # Add the source code repositories for third-party packages
           echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
           echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
-          # ✅ FIX: Replaced the private/dead link with the public repository
           echo 'src-git homeproxy https://github.com/immortalwrt/homeproxy.git' >> feeds.conf.default
           
           # Update and install all feed packages
@@ -138,4 +137,4 @@ jobs:
           files: |
             ${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          replace_latest: true
+          # ✅ FIX: Removed the invalid 'replace_latest' parameter
