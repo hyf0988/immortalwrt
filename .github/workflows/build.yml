@@ -1,4 +1,4 @@
-name: Build ImmortalWrt 24.10.2 (Source)
+name: Build ImmortalWrt (Compile From Source)
 
 on:
   workflow_dispatch:
@@ -34,40 +34,38 @@ jobs:
 
       - name: Clone ImmortalWrt Source
         run: |
-          # ✅ Switched to 24.10 branch and v24.10.2 tag
           git clone https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 openwrt
           cd openwrt
           git checkout v24.10.2
 
-      - name: Update and Install Default Feeds
+      - name: Add Third-Party Feeds
         run: |
           cd openwrt
-          # Only use the default feeds, no third-party feeds
+          echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+          echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
+          echo 'src-git homeproxy https://github.com/immortalwrt/homeproxy.git' >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Generate Build Configuration
         run: |
           cd openwrt
-          # Create the .config file with a minimal, stable package selection
           cat > .config << EOF
           CONFIG_TARGET_x86=y
           CONFIG_TARGET_x86_64=y
           CONFIG_TARGET_x86_64_DEVICE_generic=y
-          # --- Force full-size image instead of minimal ---
           CONFIG_TARGET_IMAGES_PAD=y
           CONFIG_TARGET_ROOTFS_PARTSIZE=${{ github.event.inputs.rootfs_size }}
-          # --- Disable ccache to save disk space ---
           CONFIG_ccache=n
-          # --- Essential Packages ---
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl-openssl=y
           CONFIG_PACKAGE_ca-bundle=y
-          # --- Docker Support ---
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-app-homeproxy=y
+          CONFIG_PACKAGE_luci-app-passwall=y
           CONFIG_PACKAGE_luci-app-dockerman=y
           CONFIG_PACKAGE_docker=y
           CONFIG_PACKAGE_dockerd=y
-          # --- Drivers and Filesystems ---
           CONFIG_PACKAGE_kmod-igb=y
           CONFIG_PACKAGE_kmod-e1000e=y
           CONFIG_PACKAGE_kmod-r8169=y
@@ -77,25 +75,21 @@ jobs:
           CONFIG_PACKAGE_kmod-usb2=y
           CONFIG_PACKAGE_kmod-usb3=y
           CONFIG_PACKAGE_kmod-fs-ext4=y
-          # --- Chinese Language Packs ---
           CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
           CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
           CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
           EOF
-
-          # Set custom IP address
           echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
           echo "CONFIG_TARGET_CUSTOM_IP_ADDRESS='${{ github.event.inputs.router_ip }}'" >> .config
-          
-          # Finalize configuration
           make defconfig
 
       - name: Compile Firmware
         id: compile
         run: |
           cd openwrt
-          # Use -j1 to compile on a single core for maximum stability and low memory usage
-          # This will be slow but reliable
           make -j1 V=s
 
       - name: Organize Files and Create Info
@@ -110,7 +104,7 @@ jobs:
           echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
           
           cat > ./router-info.md <<EOF
-          ## 🚀 ImmortalWrt 24.10.2 Stable (Source Build)
+          ## 🚀 ImmortalWrt 24.10.2 (Source Build)
 
           - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
           - 👤 **用户名**: root
@@ -118,13 +112,21 @@ jobs:
           - 💾 **固件大小**: ${{ github.event.inputs.rootfs_size }} MB
           EOF
 
+      # ✅ FIX 2: Create a separate step to generate the tag name
+      - name: Generate Release Tag
+        id: tagger
+        if: success()
+        run: |
+          echo "release_tag=ImmortalWrt-24.10.2-Build-$(date +%Y-%m-%d-%H%M)" >> $GITHUB_OUTPUT
+
       - name: Upload Firmware to Release
         uses: softprops/action-gh-release@v1
         if: success()
         with:
-          tag_name: ImmortalWrt-24.10.2-Source-Build-$(date +%Y-%m-%d)
+          # ✅ FIX 2: Use the output from the previous step as the tag name
+          tag_name: ${{ steps.tagger.outputs.release_tag }}
           body_path: ./router-info.md
           files: |
             ${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          replace_latest: true
+          # ✅ FIX 1: Removed the invalid 'replace_latest' parameter
