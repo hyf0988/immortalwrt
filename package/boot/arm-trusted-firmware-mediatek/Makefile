@@ -13,9 +13,9 @@ PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=https://github.com/mtk-openwrt/arm-trusted-firmware.git
-PKG_SOURCE_DATE:=2025-02-12
-PKG_SOURCE_VERSION:=e090770684e775711a624e68e0b28112227a4c38
-PKG_MIRROR_HASH:=1ff9d60f3677aadd9a6716e860985987ba7157bd28ce831112e05c0b3170939a
+PKG_SOURCE_DATE:=2025-07-11
+PKG_SOURCE_VERSION:=78a0dfd927bb00ce973a1f8eb4079df0f755887a
+PKG_MIRROR_HASH:=72a5f3f00f9e368226bb779dc098aac6195a312b48cc22172987d494ccd135d1
 
 PKG_MAINTAINER:=Daniel Golle <daniel@makrotopia.org>
 
@@ -464,6 +464,17 @@ define Trusted-Firmware-A/mt7988-ram-comb
   DEFAULT:=TARGET_mediatek_filogic
 endef
 
+define Trusted-Firmware-A/mt7988-ram-ddr3
+  NAME:=MediaTek MT7988 (RAM/ddr3)
+  BOOT_DEVICE:=ram
+  BUILD_SUBTARGET:=filogic
+  PLAT:=mt7988
+  RAM_BOOT_UART_DL:=1
+  HIDDEN:=
+  DEFAULT:=TARGET_mediatek_filogic
+  DDR_TYPE:=ddr3
+endef
+
 define Trusted-Firmware-A/mt7988-ram-ddr4
   NAME:=MediaTek MT7988 (RAM/ddr4)
   BOOT_DEVICE:=ram
@@ -593,6 +604,7 @@ TFA_TARGETS:= \
 	mt7988-snand-ddr4 \
 	mt7988-spim-nand-ddr4 \
 	mt7988-ram-comb \
+	mt7988-ram-ddr3 \
 	mt7988-ram-ddr4 \
 	mt7988-emmc-comb \
 	mt7988-nor-comb \
@@ -631,6 +643,7 @@ Package/trusted-firmware-a-mt7981-ram-ddr4/install = $(Package/trusted-firmware-
 Package/trusted-firmware-a-mt7986-ram-ddr3/install = $(Package/trusted-firmware-a-ram/install)
 Package/trusted-firmware-a-mt7986-ram-ddr4/install = $(Package/trusted-firmware-a-ram/install)
 Package/trusted-firmware-a-mt7988-ram-comb/install = $(Package/trusted-firmware-a-ram/install)
+Package/trusted-firmware-a-mt7988-ram-ddr3/install = $(Package/trusted-firmware-a-ram/install)
 Package/trusted-firmware-a-mt7988-ram-ddr4/install = $(Package/trusted-firmware-a-ram/install)
 
 define Package/trusted-firmware-a/install

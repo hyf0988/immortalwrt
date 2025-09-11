@@ -1318,11 +1318,15 @@ wpa_supplicant_add_network() {
 	wireless_vif_parse_encryption
 
 	json_get_vars \
-		ssid bssid key \
-		basic_rate mcast_rate \
+		ssid bssid key rsn_override \
+		mcast_rate \
 		ieee80211w ieee80211r fils ocv \
 		multi_ap \
 		default_disabled
+
+	json_get_values basic_rate_list basic_rate
+
+	set_default rsn_override 1
 
 	case "$auth_type" in
 		sae|owe|eap2|eap192)
@@ -1335,6 +1339,7 @@ wpa_supplicant_add_network() {
 
 	set_default ieee80211r 0
 	set_default multi_ap 0
+	set_default sae_pwe 2
 	set_default default_disabled 0
 
 	local key_mgmt='NONE'
@@ -1373,6 +1378,12 @@ wpa_supplicant_add_network() {
 	}
 
 	[ -n "$ocv" ] && append network_data "ocv=$ocv" "$N$T"
+
+	rsn_overriding=0
+	case "$htmode" in
+	EHT*|HE*) [ "$rsn_override" -gt 0 ] && rsn_overriding=1;;
+	esac
+	append network_data "rsn_overriding=$rsn_overriding" "$N$T"
 
 	case "$auth_type" in
 		none) ;;
@@ -1584,12 +1595,21 @@ wpa_supplicant_add_network() {
 	[ -n "$bssid_blacklist" ] && append network_data "bssid_blacklist=$bssid_blacklist" "$N$T"
 	[ -n "$bssid_whitelist" ] && append network_data "bssid_whitelist=$bssid_whitelist" "$N$T"
 
-	[ -n "$basic_rate" ] && {
-		local br rate_list=
-		for br in $basic_rate; do
-			wpa_supplicant_add_rate rate_list "$br"
-		done
-		[ -n "$rate_list" ] && append network_data "rates=$rate_list" "$N$T"
+	[ -n "$basic_rate_list" ] && {
+		local br rate rate_list=
+
+		if [ "$mode" = mesh ]; then
+			for br in $basic_rate_list; do
+				rate="$(($br / 100))"
+				append rate_list "$rate" " "
+			done
+			[ -n "$rate_list" ] && append network_data "mesh_basic_rates=$rate_list" "$N$T"
+		else
+			for br in $basic_rate_list; do
+				wpa_supplicant_add_rate rate_list "$br"
+			done
+			[ -n "$rate_list" ] && append network_data "rates=$rate_list" "$N$T"
+		fi
 	}
 
 	[ -n "$mcast_rate" ] && {
@@ -1606,6 +1626,7 @@ network={
 	$scan_ssid
 	ssid="$ssid"
 	key_mgmt=$key_mgmt
+	sae_pwe=$sae_pwe
 	$network_data
 }
 EOF
