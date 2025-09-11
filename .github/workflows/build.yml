@@ -1,4 +1,4 @@
-name: Build ImmortalWrt (Compile From Source v24.10)
+name: Build ImmortalWrt 24.10.2 (Source)
 
 on:
   workflow_dispatch:
@@ -34,26 +34,22 @@ jobs:
 
       - name: Clone ImmortalWrt Source
         run: |
-          git clone https://github.com/immortalwrt/immortalwrt.git -b openwrt-23.05 openwrt
+          # ✅ Switched to 24.10 branch and v24.10.2 tag
+          git clone https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 openwrt
           cd openwrt
-          git checkout v23.05.3
+          git checkout v24.10.2
 
-      - name: Add Third-Party Feeds
+      - name: Update and Install Default Feeds
         run: |
           cd openwrt
-          # Add the source code repositories for third-party packages
-          echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
-          echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
-          echo 'src-git homeproxy https://github.com/immortalwrt/homeproxy.git' >> feeds.conf.default
-          
-          # Update and install all feed packages
+          # Only use the default feeds, no third-party feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Generate Build Configuration
         run: |
           cd openwrt
-          # Create the .config file with your package selections
+          # Create the .config file with a minimal, stable package selection
           cat > .config << EOF
           CONFIG_TARGET_x86=y
           CONFIG_TARGET_x86_64=y
@@ -67,10 +63,7 @@ jobs:
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl-openssl=y
           CONFIG_PACKAGE_ca-bundle=y
-          # --- Your Selected Apps ---
-          CONFIG_PACKAGE_luci-app-openclash=y
-          CONFIG_PACKAGE_luci-app-homeproxy=y
-          CONFIG_PACKAGE_luci-app-passwall=y
+          # --- Docker Support ---
           CONFIG_PACKAGE_luci-app-dockerman=y
           CONFIG_PACKAGE_docker=y
           CONFIG_PACKAGE_dockerd=y
@@ -88,9 +81,6 @@ jobs:
           CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
           CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
           CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
           EOF
 
           # Set custom IP address
@@ -120,7 +110,7 @@ jobs:
           echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
           
           cat > ./router-info.md <<EOF
-          ## 🚀 ImmortalWrt 23.05.3 Stable (Source Build)
+          ## 🚀 ImmortalWrt 24.10.2 Stable (Source Build)
 
           - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
           - 👤 **用户名**: root
@@ -132,9 +122,9 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: success()
         with:
-          tag_name: ImmortalWrt-23.05.3-Source-Build-$(date +%Y-%m-%d)
+          tag_name: ImmortalWrt-24.10.2-Source-Build-$(date +%Y-%m-%d)
           body_path: ./router-info.md
           files: |
             ${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          # ✅ FIX: Removed the invalid 'replace_latest' parameter
+          replace_latest: true
