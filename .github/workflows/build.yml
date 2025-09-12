@@ -1,132 +1,246 @@
-name: Build ImmortalWrt (Compile From Source)
+name: Build ImmortalWrt Stable
 
 on:
   workflow_dispatch:
     inputs:
-      rootfs_size:
-        description: '请输入固件根分区的最终大小 (MB)'
+      version:
+        description: '选择版本'
         required: true
-        default: '2048'
-      router_ip:
-        description: '请设置路由器的默认管理IP地址'
-        required: true
-        default: '192.168.1.1'
+        default: '24.10.2'
+        type: choice
+        options:
+          - '24.10.2'
+          - '23.05.4'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  TZ: Asia/Shanghai
+  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Maximize Build Space
-        run: |
-          echo "Cleaning up runner..."
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /opt/hostedtoolcache
-          sudo docker image prune -a -f
-          df -h
+    - name: Set Build Environment
+      run: |
+        case "${{ inputs.version }}" in
+          "24.10.2")
+            echo "BRANCH=openwrt-24.10" >> $GITHUB_ENV
+            echo "TAG=v24.10.2" >> $GITHUB_ENV
+            ;;
+          "23.05.4")
+            echo "BRANCH=openwrt-23.05" >> $GITHUB_ENV
+            echo "TAG=v23.05.4" >> $GITHUB_ENV
+            ;;
+        esac
+        echo "BUILD_DATE=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential flex bison g++ gawk gcc-multilib g++-multilib \
-          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
+    - name: Free Disk Space
+      run: |
+        df -h
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo rm -rf /usr/local/share/boost /usr/local/graalvm
+        sudo rm -rf /usr/local/.ghcup /home/linuxbrew
+        docker rmi $(docker images -q) 2>/dev/null || true
+        sudo apt clean
+        df -h
 
-      - name: Clone ImmortalWrt Source
-        run: |
-          git clone https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 openwrt
-          cd openwrt
-          git checkout v24.10.2
+    - name: Install Dependencies
+      run: |
+        sudo apt update -q
+        sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils \
+          bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler \
+          fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haskell-platform \
+          help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev \
+          libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev \
+          libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch \
+          pkgconf python2.7 python3 python3-pip libpython3-dev qemu-utils rsync scons \
+          squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto \
+          xxd zlib1g-dev python3-setuptools
 
-      - name: Add Third-Party Feeds
-        run: |
-          cd openwrt
-          echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
-          echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
-          echo 'src-git homeproxy https://github.com/immortalwrt/homeproxy.git' >> feeds.conf.default
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+    - name: Clone ImmortalWrt
+      run: |
+        git clone --depth 1 --branch $BRANCH $REPO_URL openwrt
+        cd openwrt
+        git fetch --depth 1 origin tag $TAG
+        git checkout $TAG
 
-      - name: Generate Build Configuration
-        run: |
-          cd openwrt
-          cat > .config << EOF
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_DEVICE_generic=y
-          CONFIG_TARGET_IMAGES_PAD=y
-          CONFIG_TARGET_ROOTFS_PARTSIZE=${{ github.event.inputs.rootfs_size }}
-          CONFIG_ccache=n
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl-openssl=y
-          CONFIG_PACKAGE_ca-bundle=y
-          CONFIG_PACKAGE_luci-app-openclash=y
-          CONFIG_PACKAGE_luci-app-homeproxy=y
-          CONFIG_PACKAGE_luci-app-passwall=y
-          CONFIG_PACKAGE_luci-app-dockerman=y
-          CONFIG_PACKAGE_docker=y
-          CONFIG_PACKAGE_dockerd=y
-          CONFIG_PACKAGE_kmod-igb=y
-          CONFIG_PACKAGE_kmod-e1000e=y
-          CONFIG_PACKAGE_kmod-r8169=y
-          CONFIG_PACKAGE_kmod-r8125=y
-          CONFIG_PACKAGE_kmod-igc=y
-          CONFIG_PACKAGE_kmod-usb-core=y
-          CONFIG_PACKAGE_kmod-usb2=y
-          CONFIG_PACKAGE_kmod-usb3=y
-          CONFIG_PACKAGE_kmod-fs-ext4=y
-          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
-          EOF
-          echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
-          echo "CONFIG_TARGET_CUSTOM_IP_ADDRESS='${{ github.event.inputs.router_ip }}'" >> .config
-          make defconfig
+    - name: Update Feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-      - name: Compile Firmware
-        id: compile
-        run: |
-          cd openwrt
-          make -j1 V=s
+    - name: Generate Config
+      run: |
+        cd openwrt
+        cat > .config <<'EOF'
+CONFIG_TARGET_x86=y
+CONFIG_TARGET_x86_64=y
+CONFIG_TARGET_x86_64_DEVICE_generic=y
 
-      - name: Organize Files and Create Info
-        id: organize
-        if: success()
-        run: |
-          FIRMWARE_PATH=$(find ./openwrt/bin/targets/x86/64 -type f -name "*squashfs-combined-efi.img.gz" | head -n 1)
-          if [[ -z "$FIRMWARE_PATH" ]]; then
-            echo "::error::Firmware file not found, build failed!"
-            exit 1
-          fi
-          echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
+# Images
+CONFIG_TARGET_KERNEL_PARTSIZE=32
+CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+CONFIG_TARGET_IMAGES_GZIP=y
+CONFIG_GRUB_IMAGES=y
+CONFIG_GRUB_EFI_IMAGES=y
+CONFIG_GRUB_TIMEOUT="3"
+CONFIG_GRUB_TITLE="ImmortalWrt"
+
+# LuCI
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl-openssl=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_luci-app-firewall=y
+CONFIG_PACKAGE_luci-app-opkg=y
+
+# Network
+CONFIG_PACKAGE_ppp-mod-pppoe=y
+CONFIG_PACKAGE_6in4=y
+
+# Language
+CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
+
+# Proxy Tools
+CONFIG_PACKAGE_luci-app-openclash=y
+CONFIG_PACKAGE_luci-app-homeproxy=y
+CONFIG_PACKAGE_luci-app-passwall=y
+CONFIG_PACKAGE_luci-app-passwall2=y
+
+# PassWall
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client=y
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=y
+CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs=y
+
+# PassWall2  
+CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
+CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y
+CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client=y
+
+# Proxy Language
+CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
+CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
+
+# Docker
+CONFIG_PACKAGE_luci-app-dockerman=y
+CONFIG_PACKAGE_luci-lib-docker=y
+CONFIG_PACKAGE_docker=y
+CONFIG_PACKAGE_dockerd=y
+CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+
+# Docker Kernel Support
+CONFIG_DOCKER_CGROUP_OPTIONS=y
+CONFIG_DOCKER_NET_MACVLAN=y
+CONFIG_DOCKER_STO_EXT4=y
+CONFIG_KERNEL_CGROUP_DEVICE=y
+CONFIG_KERNEL_CGROUP_FREEZER=y
+CONFIG_KERNEL_NET_CLS_CGROUP=y
+CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y
+CONFIG_KERNEL_FS_POSIX_ACL=y
+CONFIG_KERNEL_MEMCG_SWAP=y
+
+# Network Drivers
+CONFIG_PACKAGE_kmod-igb=y
+CONFIG_PACKAGE_kmod-e1000e=y
+CONFIG_PACKAGE_kmod-igc=y
+CONFIG_PACKAGE_kmod-r8169=y
+CONFIG_PACKAGE_kmod-r8125=y
+CONFIG_PACKAGE_kmod-tg3=y
+
+# USB Storage
+CONFIG_PACKAGE_kmod-usb-storage=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_kmod-fs-ntfs3=y
+
+# Tools
+CONFIG_PACKAGE_wget-ssl=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_ethtool=y
+CONFIG_PACKAGE_fdisk=y
+CONFIG_PACKAGE_lsblk=y
+CONFIG_PACKAGE_e2fsprogs=y
+
+# Build
+CONFIG_CCACHE=y
+CONFIG_BUILD_LOG=y
+EOF
+
+        make defconfig
+
+    - name: Download Packages
+      run: |
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile
+      run: |
+        cd openwrt
+        echo "开始编译 $(date)"
+        echo "CPU: $(nproc) Memory: $(free -h | grep Mem | awk '{print $2}')"
+        
+        make -j$(nproc) || make -j1 V=s
+        
+        echo "编译完成 $(date)"
+        echo "固件位置:"
+        find bin/targets/ -name "*.img*" -o -name "*.bin" | head -5
+
+    - name: Organize Files
+      run: |
+        cd openwrt/bin/targets/x86/64
+        rm -rf packages
+        ls -la
+        echo "FIRMWARE_DIR=$(pwd)" >> $GITHUB_ENV
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: immortalwrt-${{ inputs.version }}-${{ env.BUILD_DATE }}
+        path: ${{ env.FIRMWARE_DIR }}
+        retention-days: 7
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: immortalwrt-${{ inputs.version }}-${{ env.BUILD_DATE }}
+        name: ImmortalWrt ${{ inputs.version }} - ${{ env.BUILD_DATE }}
+        files: ${{ env.FIRMWARE_DIR }}/*
+        body: |
+          ## ImmortalWrt ${{ inputs.version }} x86_64
           
-          cat > ./router-info.md <<EOF
-          ## 🚀 ImmortalWrt 24.10.2 (Source Build)
+          构建时间: $(date)
+          
+          ### 包含功能
+          - OpenClash 代理工具
+          - HomeProxy 透明代理  
+          - PassWall 科学上网
+          - PassWall2 新版本
+          - Docker 容器支持
+          - 完整网卡驱动 (包含Intel 2.5G)
+          - 中文界面
+          
+          ### 使用说明
+          - 默认IP: 192.168.1.1
+          - 用户名: root
+          - 密码: 无
 
-          - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
-          - 👤 **用户名**: root
-          - 🔑 **密码**: 无
-          - 💾 **固件大小**: ${{ github.event.inputs.rootfs_size }} MB
-          EOF
-
-      # ✅ FIX 2: Create a separate step to generate the tag name
-      - name: Generate Release Tag
-        id: tagger
-        if: success()
-        run: |
-          echo "release_tag=ImmortalWrt-24.10.2-Build-$(date +%Y-%m-%d-%H%M)" >> $GITHUB_OUTPUT
-
-      - name: Upload Firmware to Release
-        uses: softprops/action-gh-release@v1
-        if: success()
-        with:
-          # ✅ FIX 2: Use the output from the previous step as the tag name
-          tag_name: ${{ steps.tagger.outputs.release_tag }}
-          body_path: ./router-info.md
-          files: |
-            ${{ env.FIRMWARE_PATH }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # ✅ FIX 1: Removed the invalid 'replace_latest' parameter
+    - name: Clean Old Releases
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      with:
+        keep_latest: 3
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
