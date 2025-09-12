@@ -1,151 +1,97 @@
-name: Build ImmortalWrt Stable
+name: Build ImmortalWrt
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: '选择版本'
-        required: true
-        default: '24.10.2'
-        type: choice
-        options:
-          - '24.10.2'
-          - '23.05.4'
+  workflow_dispatch:   # 手动触发
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
+  REPO_VERSION: v24.10.2
+  CONFIG_FILE: .config
   TZ: Asia/Shanghai
-  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@main
 
-    - name: Set Build Environment
+    - name: Init Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
-        case "${{ inputs.version }}" in
-          "24.10.2")
-            echo "BRANCH=openwrt-24.10" >> $GITHUB_ENV
-            echo "TAG=v24.10.2" >> $GITHUB_ENV
-            ;;
-          "23.05.4")
-            echo "BRANCH=openwrt-23.05" >> $GITHUB_ENV
-            echo "TAG=v23.05.4" >> $GITHUB_ENV
-            ;;
-        esac
-        echo "BUILD_DATE=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/scripts/buildsystem/dependencies-ubuntu-2204)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
 
-    - name: Free Disk Space
+    - name: Clone Source Code
       run: |
-        df -h
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo rm -rf /usr/local/share/boost /usr/local/graalvm
-        sudo rm -rf /usr/local/.ghcup /home/linuxbrew
-        docker rmi $(docker images -q) 2>/dev/null || true
-        sudo apt clean
-        df -h
-
-    - name: Install Dependencies
-      run: |
-        sudo apt update -q
-        sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils \
-          bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler \
-          fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haskell-platform \
-          help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev \
-          libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev \
-          libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch \
-          pkgconf python2.7 python3 python3-pip libpython3-dev qemu-utils rsync scons \
-          squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto \
-          xxd zlib1g-dev python3-setuptools
-
-    - name: Clone ImmortalWrt
-      run: |
-        git clone --depth 1 --branch $BRANCH $REPO_URL openwrt
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
         cd openwrt
-        git fetch --depth 1 origin tag $TAG
-        git checkout $TAG
-
-    - name: Update Feeds
-      run: |
-        cd openwrt
+        git checkout $REPO_VERSION
         ./scripts/feeds update -a
         ./scripts/feeds install -a
- 
-    - name: Generate Config
+
+    - name: Generate Config File
       run: |
         cd openwrt
         printf '%s\n' \
-          'CONFIG_TARGET_x86=y' \          'CONFIG_TARGET_x86_64=y' \          'CONFIG_TARGET_x86_64_DEVICE_generic=y' \          '' \          '# Images' \          'CONFIG_TARGET_KERNEL_PARTSIZE=32' \          'CONFIG_TARGET_ROOTFS_PARTSIZE=1024' \          'CONFIG_TARGET_IMAGES_GZIP=y' \          'CONFIG_GRUB_IMAGES=y' \          'CONFIG_GRUB_EFI_IMAGES=y' \          'CONFIG_GRUB_TIMEOUT="3"' \          'CONFIG_GRUB_TITLE="ImmortalWrt"' \          '' \          '# LuCI' \          'CONFIG_PACKAGE_luci=y' \          'CONFIG_PACKAGE_luci-ssl-openssl=y' \          'CONFIG_PACKAGE_luci-theme-bootstrap=y' \          'CONFIG_PACKAGE_luci-app-firewall=y' \          'CONFIG_PACKAGE_luci-app-opkg=y' \          '' \          '# Network' \          'CONFIG_PACKAGE_ppp-mod-pppoe=y' \          'CONFIG_PACKAGE_6in4=y' \          '' \          '# Language' \          'CONFIG_PACKAGE_luci-i18n-base-zh-cn=y' \          'CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y' \          'CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y' \          '' \          '# Proxy Tools' \          'CONFIG_PACKAGE_luci-app-openclash=y' \          'CONFIG_PACKAGE_luci-app-homeproxy=y' \          'CONFIG_PACKAGE_luci-app-passwall=y' \          'CONFIG_PACKAGE_luci-app-passwall2=y' \          '' \          '# PassWall' \          'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y' \          'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client=y' \          'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=y' \          'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs=y' \          '' \          '# PassWall2  ' \          'CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y' \          'CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y' \          'CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client=y' \          '' \          '# Proxy Language' \          'CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y' \          'CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y' \          'CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y' \          'CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y' \          '' \          '# Docker' \          'CONFIG_PACKAGE_luci-app-dockerman=y' \          'CONFIG_PACKAGE_luci-lib-docker=y' \          'CONFIG_PACKAGE_docker=y' \          'CONFIG_PACKAGE_dockerd=y' \          'CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y' \          '' \          '# Docker Kernel Support' \          'CONFIG_DOCKER_CGROUP_OPTIONS=y' \          'CONFIG_DOCKER_NET_MACVLAN=y' \          'CONFIG_DOCKER_STO_EXT4=y' \          'CONFIG_KERNEL_CGROUP_DEVICE=y' \          'CONFIG_KERNEL_CGROUP_FREEZER=y' \          'CONFIG_KERNEL_NET_CLS_CGROUP=y' \          'CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y' \          'CONFIG_KERNEL_FS_POSIX_ACL=y' \          'CONFIG_KERNEL_MEMCG_SWAP=y' \          '' \          '# Network Drivers' \          'CONFIG_PACKAGE_kmod-igb=y' \          'CONFIG_PACKAGE_kmod-e1000e=y' \          'CONFIG_PACKAGE_kmod-igc=y' \          'CONFIG_PACKAGE_kmod-r8169=y' \          'CONFIG_PACKAGE_kmod-r8125=y' \          'CONFIG_PACKAGE_kmod-tg3=y' \          '' \          '# USB Storage' \          'CONFIG_PACKAGE_kmod-usb-storage=y' \          'CONFIG_PACKAGE_kmod-fs-ext4=y' \          'CONFIG_PACKAGE_kmod-fs-vfat=y' \          'CONFIG_PACKAGE_kmod-fs-ntfs3=y' \          '' \          '# Tools' \          'CONFIG_PACKAGE_wget-ssl=y' \          'CONFIG_PACKAGE_curl=y' \          'CONFIG_PACKAGE_ethtool=y' \          'CONFIG_PACKAGE_fdisk=y' \          'CONFIG_PACKAGE_lsblk=y' \          'CONFIG_PACKAGE_e2fsprogs=y' \          '' \          '# Build' \          'CONFIG_CCACHE=y' \          'CONFIG_BUILD_LOG=y' > .config
+          'CONFIG_TARGET_x86=y' \
+          'CONFIG_TARGET_x86_64=y' \
+          'CONFIG_TARGET_x86_64_DEVICE_generic=y' \
+          'CONFIG_PACKAGE_luci=y' \
+          'CONFIG_PACKAGE_luci-app-dockerman=y' \
+          'CONFIG_PACKAGE_luci-app-docker=y' \
+          'CONFIG_PACKAGE_luci-app-openclash=y' \
+          'CONFIG_PACKAGE_luci-app-homeproxy=y' \
+          'CONFIG_TARGET_KERNEL_PARTSIZE=32' \
+          'CONFIG_TARGET_ROOTFS_PARTSIZE=2048' \
+          'CONFIG_DOCKER_CGROUP_OPTIONS=y' \
+          'CONFIG_DOCKER_NET_MACVLAN=y' \
+          'CONFIG_DOCKER_STO_EXT4=y' \
+          'CONFIG_KERNEL_CGROUP_DEVICE=y' \
+          'CONFIG_KERNEL_CGROUP_FREEZER=y' \
+          'CONFIG_KERNEL_CGROUP_NET_PRIO=y' \
+          'CONFIG_KERNEL_EXT4_FS_POSIX_ACL=y' \
+          'CONFIG_KERNEL_EXT4_FS_SECURITY=y' \
+          'CONFIG_KERNEL_FS_POSIX_ACL=y' \
+          'CONFIG_KERNEL_NET_CLS_CGROUP=y' \
+          > .config
 
+    - name: Download Package
+      run: |
+        cd openwrt
         make defconfig
-
-    - name: Download Packages
-      run: |
-        cd openwrt
         make download -j8
-        find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile
+    - name: Compile Firmware
       run: |
         cd openwrt
-        echo "开始编译 $(date)"
-        echo "CPU: $(nproc) Memory: $(free -h | grep Mem | awk '{print $2}')"
-        
         make -j$(nproc) || make -j1 V=s
-        
-        echo "编译完成 $(date)"
-        echo "固件位置:"
-        find bin/targets/ -name "*.img*" -o -name "*.bin" | head -5
-
-    - name: Organize Files
-      run: |
-        cd openwrt/bin/targets/x86/64
-        rm -rf packages
-        ls -la
-        echo "FIRMWARE_DIR=$(pwd)" >> $GITHUB_ENV
 
     - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@main
       with:
-        name: immortalwrt-${{ inputs.version }}-${{ env.BUILD_DATE }}
-        path: ${{ env.FIRMWARE_DIR }}
-        retention-days: 7
+        name: immortalwrt-24.10.2-firmware
+        path: openwrt/bin/targets/
 
+    - name: Generate Release Tag
+      id: tag
+      run: |
+        echo "release_tag=24.10.2-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
+        
     - name: Create Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: immortalwrt-${{ inputs.version }}-${{ env.BUILD_DATE }}
-        name: ImmortalWrt ${{ inputs.version }} - ${{ env.BUILD_DATE }}
-        files: ${{ env.FIRMWARE_DIR }}/*
-        body: |
-          ## ImmortalWrt ${{ inputs.version }} x86_64
-          
-          构建时间: $(date)
-          
-          ### 包含功能
-          - OpenClash 代理工具
-          - HomeProxy 透明代理  
-          - PassWall 科学上网
-          - PassWall2 新版本
-          - Docker 容器支持
-          - 完整网卡驱动 (包含Intel 2.5G)
-          - 中文界面
-          
-          ### 使用说明
-          - 默认IP: 192.168.8.1
-          - 用户名: root
-          - 密码: 无
-
-    - name: Clean Old Releases
-      uses: dev-drprasad/delete-older-releases@v0.3.4
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: ImmortalWrt_24.10.2_${{ steps.tag.outputs.release_date }}
+        files: openwrt/bin/targets/*/*/*
+        draft: false
+        prerelease: false
