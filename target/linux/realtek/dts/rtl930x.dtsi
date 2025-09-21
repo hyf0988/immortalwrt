@@ -160,6 +160,8 @@
 	switchcore@1b000000 {
 		compatible = "syscon", "simple-mfd";
 		reg = <0x1b000000 0x10000>;
+		#address-cells = <1>;
+		#size-cells = <1>;
 
 		i2c_mst1: i2c@36c {
 			compatible = "realtek,rtl9301-i2c";
@@ -179,6 +181,18 @@
 			status = "disabled";
 		};
 
+		mdio_ctrl: mdio-controller {
+			compatible = "realtek,rtl9301-mdio", "realtek,otto-mdio";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mdio_bus0: mdio-bus@0 {
+				reg = <0>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+		};
+
 		mdio_aux: mdio-aux {
 			compatible = "realtek,rtl9300-aux-mdio";
 			#address-cells = <1>;
@@ -187,6 +201,10 @@
 			pinctrl-names = "default";
 
 			status = "disabled";
+		};
+
+		mdio_serdes: mdio-serdes {
+			compatible = "realtek,rtl9301-serdes-mdio", "realtek,otto-serdes-mdio";
 		};
 
 		soc_thermal: thermal {
