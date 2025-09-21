@@ -7,7 +7,7 @@ on:
       rootfs_size:
         description: '根分区大小 (MB)'
         required: true
-        default: '1024'
+        default: '2048'
       kernel_size:
         description: '内核分区大小 (MB)'
         required: true
@@ -56,7 +56,8 @@ jobs:
         echo "REPO_BRANCH=openwrt-24.10" >> $GITHUB_ENV
         echo "REPO_VERSION=${{ env.FIRMWARE_VERSION }}" >> $GITHUB_ENV
         echo "OPENWRT_VERSION=24.10.2" >> $GITHUB_ENV
-        echo "REPO_URL=https://github.com/immortalwrt/immortalwrt" >> $GITHUB_ENV
+        # ✅ FIX: 将 REPO_URL 修改为您自己的 fork 仓库地址
+        echo "REPO_URL=https://github.com/hyf0988/immortalwrt" >> $GITHUB_ENV
         echo "BUILD_DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
         echo "FIRMWARE_SIZE=${{ github.event.inputs.rootfs_size }}" >> $GITHUB_ENV
         echo "KERNEL_SIZE=${{ github.event.inputs.kernel_size }}" >> $GITHUB_ENV
