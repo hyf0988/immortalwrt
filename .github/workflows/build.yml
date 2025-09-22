@@ -34,9 +34,9 @@ jobs:
 
       - name: Clone ImmortalWrt Source
         run: |
-          # ✅ FIX: Removed the failing git fetch and checkout commands
-          # The script will now use the latest code from the openwrt-24.10 branch.
-          git clone --depth 1 -b openwrt-24.10 https://github.com/hyf0988/immortalwrt.git openwrt
+          git clone https://github.com/immortalwrt/immortalwrt.git -b openwrt-23.05 openwrt
+          cd openwrt
+          git checkout v23.05.3
 
       - name: Add Third-Party Feeds
         run: |
@@ -63,6 +63,8 @@ jobs:
           CONFIG_TARGET_ROOTFS_PARTSIZE=${{ github.event.inputs.rootfs_size }}
           # --- Disable ccache to save disk space ---
           CONFIG_ccache=n
+          # ✅ FIX: Disable UPX tool to prevent compilation error
+          CONFIG_USE_UPX=n
           # --- Essential Packages ---
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl-openssl=y
@@ -120,7 +122,7 @@ jobs:
           echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
           
           cat > ./router-info.md <<EOF
-          ## 🚀 ImmortalWrt 24.10 (Source Build)
+          ## 🚀 ImmortalWrt 23.05.3 Stable (Source Build)
 
           - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
           - 👤 **用户名**: root
@@ -132,7 +134,7 @@ jobs:
         id: tagger
         if: success()
         run: |
-          echo "release_tag=ImmortalWrt-24.10-Build-$(date +%Y-%m-%d-%H%M)" >> $GITHUB_OUTPUT
+          echo "release_tag=ImmortalWrt-23.05.3-Build-$(date +%Y-%m-%d-%H%M)" >> $GITHUB_OUTPUT
 
       - name: Upload Firmware to Release
         uses: softprops/action-gh-release@v1
