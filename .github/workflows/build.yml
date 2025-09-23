@@ -167,7 +167,7 @@ jobs:
         CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
-PROXY_EOF
+        PROXY_EOF
         fi
         
         make defconfig
