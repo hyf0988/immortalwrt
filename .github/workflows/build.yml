@@ -1,5 +1,5 @@
 # [Source: 1]
-name: Build My Stable ImmortalWrt 24.10.2 (Minimal + Argo)
+name: Build My Stable ImmortalWrt 24.10.2 (Official Packages Only)
 
 on:
   workflow_dispatch:
@@ -70,10 +70,9 @@ jobs:
 
     - name: Update and Install Feeds
       run: |
-        echo "=== 更新和安装软件源 ==="
+        echo "=== 更新和安装官方软件源 ==="
         cd openwrt
-        # ✅ FIX: Add a stable third-party feed for the theme
-        echo 'src-git sirpdboy https://github.com/sirpdboy/sirpdboy-package' >> feeds.conf.default
+        # ✅ FIX: Removed all third-party feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
@@ -82,6 +81,7 @@ jobs:
         echo "=== 生成编译配置 ==="
         cd openwrt
         
+        # ✅ FIX: Removed third-party theme
         cat > .config << EOF
         # Target Platform
         CONFIG_TARGET_x86=y
@@ -103,9 +103,6 @@ jobs:
         CONFIG_PACKAGE_luci=y
         CONFIG_PACKAGE_luci-ssl-openssl=y
         
-        # ✅ FIX: Add Argo theme
-        CONFIG_PACKAGE_luci-theme-argo=y
-        
         # Drivers
         CONFIG_PACKAGE_kmod-igc=y
         CONFIG_PACKAGE_kmod-r8125=y
@@ -123,7 +120,7 @@ jobs:
         CONFIG_PACKAGE_openssh-sftp-server=y
         CONFIG_PACKAGE_avahi-daemon=y
 
-        # ✅ FIX: Add more complete Chinese Language Support
+        # Language Support
         CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
@@ -146,4 +143,33 @@ jobs:
       run: |
         echo "=== 下载编译依赖 ==="
         cd openwrt
-        make
+        make download -j$(nproc)
+
+    - name: Compile Firmware
+      run: |
+        echo "=== 开始编译固件 (过程会很长) ==="
+        cd openwrt
+        make -j1 V=s
+
+    - name: Check Build Results
+      run: |
+        echo "=== 检查编译结果 ==="
+        if [ ! -d "openwrt/bin/targets/x86/64" ] || [ -z "$(ls -A openwrt/bin/targets/x86/64)" ]; then
+          echo "错误: 编译失败，未找到固件文件"
+          exit 1
+        else
+          echo "编译成功，固件文件已生成。"
+          ls -lh openwrt/bin/targets/x86/64/
+        fi
+
+    - name: Organize Firmware Files
+      id: organize
+      run: |
+        FIRMWARE_PATH=$(find openwrt/bin/targets/x86/64 -type d | head -n 1)
+        echo "FIRMWARE_PATH=${FIRMWARE_PATH}" >> $GITHUB_ENV
+
+    - name: Generate Release Info
+      run: |
+        echo "RELEASE_TAG=${{ env.OPENWRT_VERSION }}-${{ env.BUILD_DATE }}-$(date +'%H%M')" >> $GITHUB_ENV
+        cat > release_notes.md << EOF
+        ## ImmortalWrt ${{ env.OPENWRT_VERSION }} x86_64
