@@ -1,134 +1,220 @@
-name: Build My ImmortalWrt 24.10.2
+# [Source: 1]
+name: Build My Stable ImmortalWrt 24.10.2
 
 on:
   workflow_dispatch:
     inputs:
+      stable_branch_name:
+        description: '请输入您在自己仓库中创建的稳定版分支名称'
+        required: true
+        default: 'my-stable-24.10.2'
       rootfs_size:
-        description: '请输入固件根分区的最终大小 (MB)'
+        description: '根分区大小 (MB)'
         required: true
-        default: '2048'
-      router_ip:
-        description: '请设置路由器的默认管理IP地址'
+        default: '1024'
+      kernel_size:
+        description: '内核分区大小 (MB)'
         required: true
-        default: '192.168.8.1'
+        default: '32'
+      include_docker:
+        description: '包含 Docker 支持'
+        required: true
+        default: true
+        type: boolean
+      include_proxy_tools:
+        description: '包含 PassWall, OpenClash 等代理工具'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Maximize Build Space
-        run: |
-          echo "Cleaning up runner..."
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /opt/hostedtoolcache
-          sudo docker image prune -a -f
-          df -h
+    - name: Free Up Disk Space
+      run: |
+        echo "=== 清理磁盘空间 ==="
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/local/go /opt/hostedtoolcache
+        sudo docker image prune -a -f
+        sudo apt-get clean
+        sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+        echo "=== 清理后磁盘状态 ==="
+        df -h /
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential flex bison g++ gawk gcc-multilib g++-multilib \
-          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
+    - name: Install Dependencies
+      run: |
+        echo "=== 安装编译依赖 ==="
+        sudo apt-get update -qq
+        sudo apt-get install -y \
+          build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+          gettext git libncurses5-dev libncursesw5-dev libssl-dev python3 \
+          python3-dev python3-setuptools rsync swig unzip zlib1g-dev file wget \
+          curl time xsltproc libelf-dev ccache
 
-      - name: Clone My ImmortalWrt Source
-        run: |
-          # 使用您自己的 fork 仓库和 24.10 分支
-          git clone --depth 1 -b openwrt-24.10 https://github.com/hyf0988/immortalwrt.git openwrt
+    - name: Set Build Variables
+      run: |
+        echo "REPO_BRANCH=${{ github.event.inputs.stable_branch_name }}" >> $GITHUB_ENV
+        echo "REPO_URL=https://github.com/hyf0988/immortalwrt" >> $GITHUB_ENV
+        echo "OPENWRT_VERSION=24.10.2" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
+        echo "FIRMWARE_SIZE=${{ github.event.inputs.rootfs_size }}" >> $GITHUB_ENV
+        echo "KERNEL_SIZE=${{ github.event.inputs.kernel_size }}" >> $GITHUB_ENV
 
-      - name: Update and Install Default Feeds
-        run: |
-          cd openwrt
-          # 只使用官方软件源，不添加任何第三方源
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+    - name: Clone Source Code
+      run: |
+        echo "=== 克隆您的 ImmortalWrt 源码 (分支: ${{ env.REPO_BRANCH }}) ==="
+        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
 
-      - name: Generate Build Configuration
-        run: |
-          cd openwrt
-          # 创建一个不包含不兼容插件的配置文件
-          cat > .config << EOF
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_DEVICE_generic=y
-          # --- 强制生成完整大小的镜像 ---
-          CONFIG_TARGET_IMAGES_PAD=y
-          CONFIG_TARGET_ROOTFS_PARTSIZE=${{ github.event.inputs.rootfs_size }}
-          # --- 禁用 ccache 以节省磁盘空间 ---
-          CONFIG_ccache=n
-          # --- 禁用 UPX 以避免编译错误 ---
-          CONFIG_USE_UPX=n
-          # --- 基础系统和软件包 ---
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl-openssl=y
-          CONFIG_PACKAGE_ca-bundle=y
-          # --- Docker 支持 ---
-          CONFIG_PACKAGE_luci-app-dockerman=y
-          CONFIG_PACKAGE_docker=y
-          CONFIG_PACKAGE_dockerd=y
-          # --- 驱动和文件系统 ---
-          CONFIG_PACKAGE_kmod-igb=y
-          CONFIG_PACKAGE_kmod-e1000e=y
-          CONFIG_PACKAGE_kmod-r8169=y
-          CONFIG_PACKAGE_kmod-r8125=y
-          CONFIG_PACKAGE_kmod-igc=y
-          CONFIG_PACKAGE_kmod-usb-core=y
-          CONFIG_PACKAGE_kmod-usb2=y
-          CONFIG_PACKAGE_kmod-usb3=y
-          CONFIG_PACKAGE_kmod-fs-ext4=y
-          # --- 中文语言包 ---
-          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
-          CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
-          EOF
+    - name: Update and Install Feeds
+      run: |
+        echo "=== 添加并安装软件源 ==="
+        cd openwrt
+        
+        # Add third-party feeds for proxy tools and themes
+        echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+        echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
+        echo 'src-git passwall2 https://github.com/xiaorouji/openwrt-passwall2.git' >> feeds.conf.default
+        echo 'src-git homeproxy https://github.com/immortalwrt/homeproxy.git' >> feeds.conf.default
+        echo 'src-git sirpdboy https://github.com/sirpdboy/sirpdboy-package' >> feeds.conf.default
 
-          # 设置自定义IP地址
-          echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
-          echo "CONFIG_TARGET_CUSTOM_IP_ADDRESS='${{ github.event.inputs.router_ip }}'" >> .config
-          
-          # 完成配置
-          make defconfig
+        # Update and install feeds
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-      - name: Compile Firmware
-        id: compile
-        run: |
-          cd openwrt
-          # 使用单核编译以保证稳定性和低内存占用，过程会很长
-          make -j1 V=s
+    - name: Generate Configuration
+      run: |
+        echo "=== 生成编译配置 ==="
+        cd openwrt
+        
+        cat > .config << EOF
+        # Target Platform
+        CONFIG_TARGET_x86=y
+        CONFIG_TARGET_x86_64=y
+        CONFIG_TARGET_x86_64_DEVICE_generic=y
+        
+        # Target Images
+        CONFIG_TARGET_KERNEL_PARTSIZE=${{ env.KERNEL_SIZE }}
+        CONFIG_TARGET_ROOTFS_PARTSIZE=${{ env.FIRMWARE_SIZE }}
+        CONFIG_TARGET_IMAGES_PAD=y
+        CONFIG_GRUB_TIMEOUT="3"
+        CONFIG_GRUB_TITLE="ImmortalWrt"
+        CONFIG_GRUB_IMAGES=y
+        CONFIG_GRUB_EFI_IMAGES=y
+        CONFIG_TARGET_ROOTFS_EXT4FS=y
+        CONFIG_TARGET_ROOTFS_SQUASHFS=y
+        
+        # Base System
+        CONFIG_PACKAGE_luci=y
+        CONFIG_PACKAGE_luci-ssl-openssl=y
+        
+        # Drivers
+        CONFIG_PACKAGE_kmod-igc=y
+        CONFIG_PACKAGE_kmod-r8125=y
+        CONFIG_PACKAGE_kmod-igb=y
+        CONFIG_PACKAGE_kmod-e1000e=y
+        CONFIG_PACKAGE_kmod-r8169=y
+        
+        # USB and Storage
+        CONFIG_PACKAGE_kmod-usb-core=y
+        CONFIG_PACKAGE_kmod-usb2=y
+        CONFIG_PACKAGE_kmod-usb3=y
+        CONFIG_PACKAGE_kmod-fs-ext4=y
+        
+        # --- NEW PACKAGES ---
+        # Theme
+        CONFIG_PACKAGE_luci-theme-argo=y
+        # File Transfer
+        CONFIG_PACKAGE_openssh-sftp-server=y
+        CONFIG_PACKAGE_avahi-daemon=y
+        # --- END NEW PACKAGES ---
 
-      - name: Organize Files and Create Info
-        id: organize
-        if: success()
-        run: |
-          FIRMWARE_PATH=$(find ./openwrt/bin/targets/x86/64 -type f -name "*squashfs-combined-efi.img.gz" | head -n 1)
-          if [[ -z "$FIRMWARE_PATH" ]]; then
-            echo "::error::固件文件未找到, 编译失败!"
-            exit 1
-          fi
-          echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
-          
-          cat > ./router-info.md <<EOF
-          ## 🚀 ImmortalWrt 24.10.2 (精简版)
+        # Language Support
+        CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
+        EOF
+        
+        if [ "${{ github.event.inputs.include_docker }}" == "true" ]; then
+          cat >> .config << 'DOCKER_EOF'
+        
+        # Docker Support
+        CONFIG_PACKAGE_luci-app-dockerman=y
+        CONFIG_PACKAGE_docker=y
+        CONFIG_PACKAGE_dockerd=y
+        CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+DOCKER_EOF
+        fi
+        
+        if [ "${{ github.event.inputs.include_proxy_tools }}" == "true" ]; then
+          cat >> .config << 'PROXY_EOF'
+        
+        # Proxy Tools
+        CONFIG_PACKAGE_luci-app-openclash=y
+        CONFIG_PACKAGE_luci-app-homeproxy=y
+        CONFIG_PACKAGE_luci-app-passwall=y
+        CONFIG_PACKAGE_luci-app-passwall2=y
+        
+        # Language Support
+        CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
+        CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
+PROXY_EOF
+        fi
+        
+        make defconfig
 
-          - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
-          - 👤 **用户名**: root
-          - 🔑 **密码**: 无
-          - 💾 **固件大小**: ${{ github.event.inputs.rootfs_size }} MB
-          EOF
+    - name: Download Dependencies
+      run: |
+        echo "=== 下载编译依赖 ==="
+        cd openwrt
+        make download -j$(nproc)
 
-      - name: Generate Release Tag
-        id: tagger
-        if: success()
-        run: |
-          echo "release_tag=ImmortalWrt-24.10.2-Build-$(date +%Y-%m-%d-%H%M)" >> $GITHUB_OUTPUT
+    - name: Compile Firmware
+      run: |
+        echo "=== 开始编译固件 (过程会很长) ==="
+        cd openwrt
+        make -j1 V=s
 
-      - name: Upload Firmware to Release
-        uses: softprops/action-gh-release@v1
-        if: success()
-        with:
-          tag_name: ${{ steps.tagger.outputs.release_tag }}
-          body_path: ./router-info.md
-          files: |
-            ${{ env.FIRMWARE_PATH }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Check Build Results
+      run: |
+        echo "=== 检查编译结果 ==="
+        if [ ! -d "openwrt/bin/targets/x86/64" ] || [ -z "$(ls -A openwrt/bin/targets/x86/64)" ]; then
+          echo "错误: 编译失败，未找到固件文件"
+          exit 1
+        else
+          echo "编译成功，固件文件已生成。"
+          ls -lh openwrt/bin/targets/x86/64/
+        fi
+
+    - name: Organize Firmware Files
+      id: organize
+      run: |
+        FIRMWARE_PATH=$(find openwrt/bin/targets/x86/64 -type d | head -n 1)
+        echo "FIRMWARE_PATH=${FIRMWARE_PATH}" >> $GITHUB_ENV
+
+    - name: Generate Release Info
+      run: |
+        echo "RELEASE_TAG=${{ env.OPENWRT_VERSION }}-${{ env.BUILD_DATE }}-$(date +'%H%M')" >> $GITHUB_ENV
+        cat > release_notes.md << EOF
+        ## ImmortalWrt ${{ env.OPENWRT_VERSION }} x86_64
+        **构建时间**: ${{ env.BUILD_DATE }}
+        **编译分支**: ${{ env.REPO_BRANCH }}
+        EOF
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.RELEASE_TAG }}
+        name: ImmortalWrt ${{ env.OPENWRT_VERSION }} - ${{ env.BUILD_DATE }}
+        body_path: release_notes.md
+        files: ${{ env.FIRMWARE_PATH }}/*
+        token: ${{ secrets.GITHUB_TOKEN }}
