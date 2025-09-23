@@ -1,5 +1,5 @@
 # [Source: 1]
-name: Build My Stable ImmortalWrt 24.10.2
+name: Build My Stable ImmortalWrt 24.10.2 (Minimal + Argo)
 
 on:
   workflow_dispatch:
@@ -11,18 +11,13 @@ on:
       rootfs_size:
         description: '根分区大小 (MB)'
         required: true
-        default: '1024'
+        default: '2048'
       kernel_size:
         description: '内核分区大小 (MB)'
         required: true
         default: '32'
       include_docker:
         description: '包含 Docker 支持'
-        required: true
-        default: true
-        type: boolean
-      include_proxy_tools:
-        description: '包含 PassWall, OpenClash 等代理工具'
         required: true
         default: true
         type: boolean
@@ -75,17 +70,10 @@ jobs:
 
     - name: Update and Install Feeds
       run: |
-        echo "=== 添加并安装软件源 ==="
+        echo "=== 更新和安装软件源 ==="
         cd openwrt
-        
-        # Add third-party feeds for proxy tools and themes
-        echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
-        echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
-        echo 'src-git passwall2 https://github.com/xiaorouji/openwrt-passwall2.git' >> feeds.conf.default
-        echo 'src-git homeproxy https://github.com/immortalwrt/homeproxy.git' >> feeds.conf.default
+        # ✅ FIX: Add a stable third-party feed for the theme
         echo 'src-git sirpdboy https://github.com/sirpdboy/sirpdboy-package' >> feeds.conf.default
-
-        # Update and install feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
@@ -115,6 +103,9 @@ jobs:
         CONFIG_PACKAGE_luci=y
         CONFIG_PACKAGE_luci-ssl-openssl=y
         
+        # ✅ FIX: Add Argo theme
+        CONFIG_PACKAGE_luci-theme-argo=y
+        
         # Drivers
         CONFIG_PACKAGE_kmod-igc=y
         CONFIG_PACKAGE_kmod-r8125=y
@@ -128,15 +119,11 @@ jobs:
         CONFIG_PACKAGE_kmod-usb3=y
         CONFIG_PACKAGE_kmod-fs-ext4=y
         
-        # --- NEW PACKAGES ---
-        # Theme
-        CONFIG_PACKAGE_luci-theme-argo=y
         # File Transfer
         CONFIG_PACKAGE_openssh-sftp-server=y
         CONFIG_PACKAGE_avahi-daemon=y
-        # --- END NEW PACKAGES ---
 
-        # Language Support
+        # ✅ FIX: Add more complete Chinese Language Support
         CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
         CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
@@ -153,68 +140,10 @@ jobs:
         DOCKER_EOF
         fi
         
-        if [ "${{ github.event.inputs.include_proxy_tools }}" == "true" ]; then
-          cat >> .config << 'PROXY_EOF'
-        
-        # Proxy Tools
-        CONFIG_PACKAGE_luci-app-openclash=y
-        CONFIG_PACKAGE_luci-app-homeproxy=y
-        CONFIG_PACKAGE_luci-app-passwall=y
-        CONFIG_PACKAGE_luci-app-passwall2=y
-        
-        # Language Support
-        CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
-        CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
-        PROXY_EOF
-        fi
-        
         make defconfig
 
     - name: Download Dependencies
       run: |
         echo "=== 下载编译依赖 ==="
         cd openwrt
-        make download -j$(nproc)
-
-    - name: Compile Firmware
-      run: |
-        echo "=== 开始编译固件 (过程会很长) ==="
-        cd openwrt
-        make -j1 V=s
-
-    - name: Check Build Results
-      run: |
-        echo "=== 检查编译结果 ==="
-        if [ ! -d "openwrt/bin/targets/x86/64" ] || [ -z "$(ls -A openwrt/bin/targets/x86/64)" ]; then
-          echo "错误: 编译失败，未找到固件文件"
-          exit 1
-        else
-          echo "编译成功，固件文件已生成。"
-          ls -lh openwrt/bin/targets/x86/64/
-        fi
-
-    - name: Organize Firmware Files
-      id: organize
-      run: |
-        FIRMWARE_PATH=$(find openwrt/bin/targets/x86/64 -type d | head -n 1)
-        echo "FIRMWARE_PATH=${FIRMWARE_PATH}" >> $GITHUB_ENV
-
-    - name: Generate Release Info
-      run: |
-        echo "RELEASE_TAG=${{ env.OPENWRT_VERSION }}-${{ env.BUILD_DATE }}-$(date +'%H%M')" >> $GITHUB_ENV
-        cat > release_notes.md << EOF
-        ## ImmortalWrt ${{ env.OPENWRT_VERSION }} x86_64
-        **构建时间**: ${{ env.BUILD_DATE }}
-        **编译分支**: ${{ env.REPO_BRANCH }}
-        EOF
-
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ env.RELEASE_TAG }}
-        name: ImmortalWrt ${{ env.OPENWRT_VERSION }} - ${{ env.BUILD_DATE }}
-        body_path: release_notes.md
-        files: ${{ env.FIRMWARE_PATH }}/*
-        token: ${{ secrets.GITHUB_TOKEN }}
+        make
