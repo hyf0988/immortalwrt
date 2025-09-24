@@ -16,6 +16,11 @@ on:
         description: '内核分区大小 (MB)'
         required: true
         default: '32'
+      # ✅ FIX: Added input for custom LAN IP address
+      router_ip:
+        description: '请设置路由器的默认LAN口IP地址'
+        required: true
+        default: '192.168.8.1'
       include_docker:
         description: '包含 Docker 支持'
         required: true
@@ -72,7 +77,6 @@ jobs:
       run: |
         echo "=== 更新和安装官方软件源 ==="
         cd openwrt
-        # ✅ FIX: Removed all third-party feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
@@ -81,7 +85,6 @@ jobs:
         echo "=== 生成编译配置 ==="
         cd openwrt
         
-        # ✅ FIX: Removed third-party theme
         cat > .config << EOF
         # Target Platform
         CONFIG_TARGET_x86=y
@@ -98,6 +101,11 @@ jobs:
         CONFIG_GRUB_EFI_IMAGES=y
         CONFIG_TARGET_ROOTFS_EXT4FS=y
         CONFIG_TARGET_ROOTFS_SQUASHFS=y
+
+        # Disable unnecessary Wi-Fi components to fix build error
+        CONFIG_PACKAGE_hostapd-common=n
+        CONFIG_PACKAGE_wpad-basic-openssl=n
+        CONFIG_PACKAGE_wireless-regdb=n
         
         # Base System
         CONFIG_PACKAGE_luci=y
@@ -137,6 +145,10 @@ jobs:
         DOCKER_EOF
         fi
         
+        # ✅ FIX: Add custom LAN IP address to the configuration
+        echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
+        echo "CONFIG_TARGET_CUSTOM_IP_ADDRESS='${{ github.event.inputs.router_ip }}'" >> .config
+
         make defconfig
 
     - name: Download Dependencies
@@ -159,17 +171,4 @@ jobs:
           exit 1
         else
           echo "编译成功，固件文件已生成。"
-          ls -lh openwrt/bin/targets/x86/64/
-        fi
-
-    - name: Organize Firmware Files
-      id: organize
-      run: |
-        FIRMWARE_PATH=$(find openwrt/bin/targets/x86/64 -type d | head -n 1)
-        echo "FIRMWARE_PATH=${FIRMWARE_PATH}" >> $GITHUB_ENV
-
-    - name: Generate Release Info
-      run: |
-        echo "RELEASE_TAG=${{ env.OPENWRT_VERSION }}-${{ env.BUILD_DATE }}-$(date +'%H%M')" >> $GITHUB_ENV
-        cat > release_notes.md << EOF
-        ## ImmortalWrt ${{ env.OPENWRT_VERSION }} x86_64
+          ls -lh openwrt/bin/targets/x86/
