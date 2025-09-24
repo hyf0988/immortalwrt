@@ -141,7 +141,7 @@ jobs:
         CONFIG_PACKAGE_docker=y
         CONFIG_PACKAGE_dockerd=y
         CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
-DOCKER_EOF
+        DOCKER_EOF
         fi
         
         # Add custom LAN IP address to the configuration
