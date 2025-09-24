@@ -16,7 +16,6 @@ on:
         description: '内核分区大小 (MB)'
         required: true
         default: '32'
-      # ✅ FIX: Added input for custom LAN IP address
       router_ip:
         description: '请设置路由器的默认LAN口IP地址'
         required: true
@@ -142,10 +141,10 @@ jobs:
         CONFIG_PACKAGE_docker=y
         CONFIG_PACKAGE_dockerd=y
         CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
-        DOCKER_EOF
+DOCKER_EOF
         fi
         
-        # ✅ FIX: Add custom LAN IP address to the configuration
+        # Add custom LAN IP address to the configuration
         echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
         echo "CONFIG_TARGET_CUSTOM_IP_ADDRESS='${{ github.event.inputs.router_ip }}'" >> .config
 
@@ -171,4 +170,32 @@ jobs:
           exit 1
         else
           echo "编译成功，固件文件已生成。"
-          ls -lh openwrt/bin/targets/x86/
+          ls -lh openwrt/bin/targets/x86/64/
+        fi
+
+    - name: Organize Firmware Files
+      id: organize
+      run: |
+        FIRMWARE_PATH=$(find openwrt/bin/targets/x86/64 -type d | head -n 1)
+        echo "FIRMWARE_PATH=${FIRMWARE_PATH}" >> $GITHUB_ENV
+
+    - name: Generate Release Info
+      run: |
+        echo "RELEASE_TAG=${{ env.OPENWRT_VERSION }}-${{ env.BUILD_DATE }}-$(date +'%H%M')" >> $GITHUB_ENV
+        cat > release_notes.md << EOF
+        ## ImmortalWrt ${{ env.OPENWRT_VERSION }} x86_64
+        **后台地址 (LAN IP)**: ${{ github.event.inputs.router_ip }}
+        **构建时间**: ${{ env.BUILD_DATE }}
+        **编译分支**: ${{ env.REPO_BRANCH }}
+        
+        **说明**: 此版本为精简版，不包含任何第三方插件。
+        EOF
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.RELEASE_TAG }}
+        name: ImmortalWrt ${{ env.OPENWRT_VERSION }} - ${{ env.BUILD_DATE }}
+        body_path: release_notes.md
+        files: ${{ env.FIRMWARE_PATH }}/*
+        token: ${{ secrets.GITHUB_TOKEN }}
