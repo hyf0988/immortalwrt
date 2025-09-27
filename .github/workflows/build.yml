@@ -1,132 +1,133 @@
-name: Build My Stable ImmortalWrt
+# [Source: 1]
+name: build-x86-64-immortalwrt-24.10.2
 
 on:
   workflow_dispatch:
     inputs:
-      stable_version_tag:
-        description: '请输入要编译的官方稳定版标签 (Tag)'
+      custom_router_ip:
+        description: "请设置路由器的管理地址(仅对多网口路由器有效) 格式:192.168.x.1 或 10.x.x.1"
         required: true
-        default: 'v24.10.3'
-      rootfs_size:
-        description: '根分区大小 (MB)'
+        default: "192.168.100.1"
+      profile:
+        description: '请输入要编译固件大小 单位(MB)'
         required: true
-        default: '2048'
-      router_ip:
-        description: '请设置路由器的默认管理IP地址'
+        default: '1024'
+      enable_store:
+        description: "集成 store 商店"
+        required: false
+        type: boolean
+        default: true
+      include_docker:
+        description: |
+          是否编译 Docker 插件
         required: true
-        default: '192.168.1.1'
+        default: 'yes'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_pppoe:
+        description: "是否配置PPPoE拨号信息?"
+        required: true
+        default: 'no'
+        type: choice
+        options:
+        - 'yes'
+        - 'no'
+      pppoe_account:
+        description: "宽带账号 (若启用PPPoE)"
+        required: false
+      pppoe_password:
+        description: "宽带密码 (若启用PPPoE)"
+        required: false
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Maximize Build Space
+      - name: Set executable permissions
+        run: chmod +x ${{ github.workspace }}/x86-64/build24.sh
+
+      - name: Save Custom Router IP into OpenWrt files
         run: |
-          echo "Cleaning up runner..."
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/powershell /opt/hostedtoolcache
-          sudo docker image prune -a -f
-          df -h
-
-      - name: Install Build Dependencies
+          mkdir -p "${{ github.workspace }}/custom"
+          echo "${{ github.event.inputs.custom_router_ip }}" > "${{ github.workspace }}/custom/custom_router_ip.txt"
+          echo "您设置的路由器管理地址是:${{ github.event.inputs.custom_router_ip }}"
+          # 后续步骤会将该文件映射到路由器/etc/config/custom_router_ip.txt 以便用于开机脚本99-custom.sh读取用户设置的ip
+      
+      - name: Validate PPPoE Inputs
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential flex bison g++ gawk gcc-multilib g++-multilib \
-          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
-
-      - name: Clone Source and Checkout Stable Tag
-        run: |
-          # 克隆您自己的仓库的默认分支
-          git clone --depth 1 https://github.com/hyf0988/immortalwrt.git openwrt
-          cd openwrt
-          
-          # 添加官方仓库作为上游 (upstream)
-          git remote add upstream https://github.com/immortalwrt/immortalwrt.git
-          
-          # 从上游获取所有的标签信息
-          git fetch upstream --tags
-          
-          # 检出您指定的稳定版标签
-          echo "Checking out stable tag: ${{ github.event.inputs.stable_version_tag }}"
-          git checkout tags/${{ github.event.inputs.stable_version_tag }}
-
-      - name: Add and Update Feeds
-        run: |
-          cd openwrt
-          # (根据需要，您可以在此添加第三方插件的 feeds.conf.default 条目)
-          # echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
-          
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Generate Build Configuration
-        run: |
-          cd openwrt
-          cat > .config << EOF
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_DEVICE_generic=y
-          CONFIG_TARGET_IMAGES_PAD=y
-          CONFIG_TARGET_ROOTFS_PARTSIZE=${{ github.event.inputs.rootfs_size }}
-          CONFIG_ccache=n
-          CONFIG_USE_UPX=n
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl-openssl=y
-          CONFIG_PACKAGE_ca-bundle=y
-          CONFIG_PACKAGE_hostapd-common=n
-          CONFIG_PACKAGE_wpad-basic-openssl=n
-          CONFIG_PACKAGE_wireless-regdb=n
-          CONFIG_PACKAGE_kmod-igb=y
-          CONFIG_PACKAGE_kmod-e1000e=y
-          CONFIG_PACKAGE_kmod-r8169=y
-          CONFIG_PACKAGE_kmod-r8125=y
-          CONFIG_PACKAGE_kmod-igc=y
-          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-          EOF
-
-          echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
-          echo "CONFIG_TARGET_CUSTOM_IP_ADDRESS='${{ github.event.inputs.router_ip }}'" >> .config
-          
-          make defconfig
-
-      - name: Compile Firmware
-        run: |
-          cd openwrt
-          make -j1 V=s
-
-      - name: Organize Files and Create Info
-        id: organize
-        if: success()
-        run: |
-          FIRMWARE_PATH=$(find ./openwrt/bin/targets/x86/64 -type f -name "*squashfs-combined-efi.img.gz" | head -n 1)
-          if [[ -z "$FIRMWARE_PATH" ]]; then
-            echo "::error::Firmware file not found, build failed!"
-            exit 1
+          if [[ "${{ inputs.enable_pppoe }}" == "yes" ]]; then
+            if [[ -z "${{ inputs.pppoe_account }}" || -z "${{ inputs.pppoe_password }}" ]]; then
+              echo "Error: PPPoE account and password must be provided when PPPoE is enabled!"
+              exit 1
+            fi
           fi
-          echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
+      
+      - name: Enable Store integration
+        run: |
+          if [ "${{ github.event.inputs.enable_store }}" == "true" ]; then
+            echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store"' >> shell/custom-packages.sh
+            echo "✅ 已追加 luci-app-store"
+          else
+            echo "❎ 未启用 luci-app-store"
+          fi
+
+      # ✅ NEW STEP: Add your requested packages
+      - name: Add Custom Packages
+        run: |
+          echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-dockerman luci-app-passwall luci-app-homeproxy luci-app-openclash"' >> shell/custom-packages.sh
+          echo "✅ 已追加 dockerman, passwall, homeproxy, openclash"
+
+      - name: Build ImmortalWrt-x86-64-efi
+        run: |
+          profile="${{ github.event.inputs.profile }}"
+          include_docker="${{ github.event.inputs.include_docker }}"
+          echo "Building for profile: $profile"
+          docker run --rm -i \
+            --user root \
+            -v "${{ github.workspace }}/bin:/home/build/immortalwrt/bin" \
+            -v "${{ github.workspace }}/files:/home/build/immortalwrt/files" \
+            -v "${{ github.workspace }}/custom:/home/build/immortalwrt/files/etc/config" \
+            -v "${{ github.workspace }}/x86-64/imm.config:/home/build/immortalwrt/.config" \
+            -v "${{ github.workspace }}/shell:/home/build/immortalwrt/shell" \
+            -v "${{ github.workspace }}/x86-64/build24.sh:/home/build/immortalwrt/build.sh" \
+            -e PROFILE=$profile \
+            -e INCLUDE_DOCKER=$include_docker \
+            -e ENABLE_PPPOE=${{ inputs.enable_pppoe }} \
+            -e PPPOE_ACCOUNT=${{ inputs.pppoe_account }} \
+            -e PPPOE_PASSWORD=${{ inputs.pppoe_password }} \
+          immortalwrt/imagebuilder:x86-64-openwrt-24.10.2 /bin/bash /home/build/immortalwrt/build.sh
           
-          cat > ./router-info.md <<EOF
-          ## 🚀 ImmortalWrt ${{ github.event.inputs.stable_version_tag }} Stable (Source Build)
-          - 🏠 **后台地址**: ${{ github.event.inputs.router_ip }}
+
+      - name: Create info
+        run: |
+          cat > ${{ github.workspace }}/router-info.md <<EOF
+          ## 📡 路由器后台信息
+
+          - 🏠 **后台地址**: ${{ github.event.inputs.custom_router_ip }}
           - 👤 **用户名**: root
           - 🔑 **密码**: 无
-          - 💾 **固件大小**: ${{ github.event.inputs.rootfs_size }} MB
           EOF
 
-      - name: Generate Release Tag
-        id: tagger
-        if: success()
-        run: |
-          echo "release_tag=${{ github.event.inputs.stable_version_tag }}-Build-$(date +%Y-%m-%d-%H%M)" >> $GITHUB_OUTPUT
+          if [ "${{ github.event.inputs.include_docker }}" == "yes" ]; then
+            extra_content="#### 默认带docker"
+            echo -e "\n$extra_content" >> ${{ github.workspace }}/router-info.md
+          else
+            echo -e "\n#### 不带docker" >> ${{ github.workspace }}/router-info.md
+          fi
 
-      - name: Upload Firmware to Release
-        uses: softprops/action-gh-release@v1
-        if: success()
+      - name: Upload ImmortWrt as release assets
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tagger.outputs.release_tag }}
-          body_path: ./router-info.md
+          tag_name: Autobuild-x86-64
+          body_path: ${{ github.workspace }}/router-info.md
           files: |
-            ${{ env.FIRMWARE_PATH }}
+            ${{ github.workspace }}/bin/targets/x86/64/*squashfs-combined-efi.img.gz
           token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
