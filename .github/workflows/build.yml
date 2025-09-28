@@ -6,7 +6,7 @@ on:
       stable_version_tag:
         description: '请输入要编译的官方稳定版标签 (例如: v23.05.4 或 v24.10.3)'
         required: true
-        default: 'v23.05.4'
+        default: 'v24.10.3'
       rootfs_size:
         description: '根分区大小 (MB)'
         required: true
@@ -14,7 +14,7 @@ on:
       router_ip:
         description: '请设置路由器的默认管理IP地址'
         required: true
-        default: '192.168.1.1'
+        default: '192.168.8.1'
 
 jobs:
   build:
@@ -59,7 +59,10 @@ jobs:
         run: |
           cd openwrt
           # (根据需要，您可以在此添加第三方插件的 feeds.conf.default 条目)
-          # echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+          echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+          echo 'src-git Passwall https://github.com/xiaorouji/openwrt-passwall.git
+          echo 'src-git HomeProxy https://github.com/immortalwrt/homeproxy.git
+          echo 'src-git Argo https://github.com/sirpdboy/sirpdboy-package
           
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -87,6 +90,8 @@ jobs:
           CONFIG_PACKAGE_kmod-r8125=y
           CONFIG_PACKAGE_kmod-igc=y
           CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
           EOF
 
           echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
