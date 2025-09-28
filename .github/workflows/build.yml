@@ -60,9 +60,9 @@ jobs:
           cd openwrt
           # (根据需要，您可以在此添加第三方插件的 feeds.conf.default 条目)
           echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
-          echo 'src-git Passwall https://github.com/xiaorouji/openwrt-passwall.git
-          echo 'src-git HomeProxy https://github.com/immortalwrt/homeproxy.git
-          echo 'src-git Argo https://github.com/sirpdboy/sirpdboy-package
+          echo 'src-git Passwall https://github.com/xiaorouji/openwrt-passwall.git' >> feeds.conf.default
+          echo 'src-git HomeProxy https://github.com/immortalwrt/homeproxy.git' >> feeds.conf.default
+          echo 'src-git Argo https://github.com/sirpdboy/sirpdboy-package' >> feeds.conf.default
           
           ./scripts/feeds update -a
           ./scripts/feeds install -a
