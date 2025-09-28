@@ -22,7 +22,6 @@ jobs:
     permissions:
       contents: read
     env:
-      CPU_COUNT: ${{ runner.cores }}
       IMMORTAL_BRANCH: ${{ github.event.inputs.immortal_branch }}
       ROOTFS_PARTSIZE: ${{ github.event.inputs.overlay_mb }}
     steps:
