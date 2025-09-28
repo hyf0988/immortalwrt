@@ -64,14 +64,14 @@ jobs:
           # back up original feeds.conf.default
           cp feeds.conf.default feeds.conf.default.bak || true
           cat >> feeds.conf.default <<'EOF'
-src-git packages https://github.com/immortalwrt/packages
-src-git luci https://github.com/immortalwrt/luci
-# community feeds for passwall / openclash / argon / homeproxy
-src-git openwrt-passwall https://github.com/xiaorouji/openwrt-passwall
-src-git openclash https://github.com/vernesong/OpenClash
-src-git jerrykuku-theme-argon https://github.com/jerrykuku/luci-theme-argon
-src-git homeproxy https://github.com/immortalwrt/homeproxy
-EOF
+          src-git packages https://github.com/immortalwrt/packages
+          src-git luci https://github.com/immortalwrt/luci
+          # community feeds for passwall / openclash / argon / homeproxy
+          src-git openwrt-passwall https://github.com/xiaorouji/openwrt-passwall
+          src-git openclash https://github.com/vernesong/OpenClash
+          src-git jerrykuku-theme-argon https://github.com/jerrykuku/luci-theme-argon
+          src-git homeproxy https://github.com/immortalwrt/homeproxy
+          EOF
           cat feeds.conf.default
 
       - name: Update & install feeds
