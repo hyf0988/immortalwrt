@@ -96,7 +96,8 @@ jobs:
           CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y
           CONFIG_PACKAGE_luci-app-homeproxy=y
           CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn=y
-          
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
           EOF
 
           echo "CONFIG_PACKAGE_base-files-custom-ip=y" >> .config
